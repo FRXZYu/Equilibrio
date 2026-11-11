@@ -1,0 +1,6 @@
+{
+  "name": "Equilibrio",
+  "description": "Evaluación holística de motivación, autoestima y balance de vida con estadística hexagonal interactiva.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
