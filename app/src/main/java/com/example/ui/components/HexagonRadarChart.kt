@@ -630,3 +630,374 @@ private fun DrawScope.drawHexagonPolygon(
     style = Stroke(width = strokeWidth)
   )
 }
+
+/**
+ * Hexágono de dos capas para el tablero principal "Hoy":
+ * - Capa PERCIBIDA (el cuestionario): contorno punteado (dashed stroke).
+ * - Capa REAL (lo hecho en los últimos 14 días): relleno con transparencia y borde sólido.
+ * - Día 1 sin datos reales: muestra SOLO el contorno percibido y el texto "Tu hexágono real se dibuja con lo que hagas esta semana".
+ * - Animación: cuando cambia un puntaje real, el vértice crece o decrece con animateFloatAsState (~600 ms, easing suave).
+ * - Tocar un vértice abre el detalle de esa dimensión.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun DualLayerHexagonRadarChart(
+  perceivedScores: Map<Int, Int>,
+  realScores: Map<Int, Float>,
+  selectedDimensionIndex: Int? = null,
+  onDimensionSelect: (Int) -> Unit,
+  modifier: Modifier = Modifier
+) {
+  val dimensions = DimensionsProvider.dimensions
+  val hasRealData = realScores.values.any { it > 0.05f }
+
+  // Animación del puntaje percibido (600 ms con easing suave)
+  val animatedPerceived = (0..5).map { index ->
+    val score = perceivedScores[index] ?: 5
+    animateFloatAsState(
+      targetValue = (score / 10f).coerceIn(0.12f, 1f),
+      animationSpec = androidx.compose.animation.core.tween(
+        durationMillis = 600,
+        easing = androidx.compose.animation.core.FastOutSlowInEasing
+      ),
+      label = "dual_perceived_$index"
+    ).value
+  }
+
+  // Animación de los puntajes reales (600 ms con easing suave)
+  val animatedReal = (0..5).map { index ->
+    val score = realScores[index] ?: 0f
+    animateFloatAsState(
+      targetValue = (score / 10f).coerceIn(0.06f, 1f),
+      animationSpec = androidx.compose.animation.core.tween(
+        durationMillis = 600,
+        easing = androidx.compose.animation.core.FastOutSlowInEasing
+      ),
+      label = "dual_real_$index"
+    ).value
+  }
+
+  Column(
+    modifier = modifier.fillMaxWidth(),
+    horizontalAlignment = Alignment.CenterHorizontally
+  ) {
+    // Leyenda de las dos capas
+    Row(
+      horizontalArrangement = Arrangement.spacedBy(16.dp),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      // Capa real
+      if (hasRealData) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Box(
+            modifier = Modifier
+              .size(10.dp)
+              .clip(CircleShape)
+              .background(AccentCharcoal)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = "Real (14 días)",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = TextPrimaryLight
+          )
+        }
+      }
+
+      // Capa percibida
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+          modifier = Modifier
+            .width(16.dp)
+            .height(3.dp)
+            .background(Color(0xFF8E95A2), shape = RoundedCornerShape(2.dp))
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+          text = "Percibido (Cuestionario)",
+          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+          color = TextSecondaryLight
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Lienzo del Hexágono
+    BoxWithConstraints(
+      modifier = Modifier
+        .size(280.dp)
+        .testTag("dual_layer_hexagon_chart"),
+      contentAlignment = Alignment.Center
+    ) {
+      Canvas(
+        modifier = Modifier
+          .fillMaxSize()
+          .pointerInput(perceivedScores, realScores) {
+            detectTapGestures { tapOffset ->
+              val center = Offset(size.width / 2f, size.height / 2f)
+              val minDim = kotlin.math.min(size.width, size.height)
+              val maxRadius = (minDim / 2f) * 0.82f
+
+              var closestIndex = 0
+              var minDistance = Float.MAX_VALUE
+
+              for (i in 0..5) {
+                val r = maxRadius * if (hasRealData) animatedReal[i] else animatedPerceived[i]
+                val angle = -PI / 2 + i * (PI / 3)
+                val vx = (center.x + r * cos(angle)).toFloat()
+                val vy = (center.y + r * sin(angle)).toFloat()
+                val dist = hypot(tapOffset.x - vx, tapOffset.y - vy)
+                if (dist < minDistance) {
+                  minDistance = dist
+                  closestIndex = i
+                }
+              }
+
+              val angleFromCenter = Math.atan2(
+                (tapOffset.y - center.y).toDouble(),
+                (tapOffset.x - center.x).toDouble()
+              )
+              var normalized = angleFromCenter + PI / 2
+              if (normalized < 0) normalized += 2 * PI
+              val sectorIndex = ((normalized + PI / 6) / (PI / 3)).toInt() % 6
+
+              val targetIndex = if (minDistance < 70f) closestIndex else sectorIndex
+              onDimensionSelect(targetIndex)
+            }
+          }
+      ) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val maxRadius = (size.minDimension / 2f) * 0.82f
+
+        // Anillos concéntricos de referencia (25%, 50%, 75%, 100%)
+        val levelSteps = listOf(0.25f, 0.50f, 0.75f, 1.0f)
+        levelSteps.forEach { levelFrac ->
+          drawHexagonPolygon(
+            center = center,
+            radius = maxRadius * levelFrac,
+            strokeColor = if (levelFrac == 1.0f) BorderLight else BorderLight.copy(alpha = 0.5f),
+            strokeWidth = if (levelFrac == 1.0f) 1.5.dp.toPx() else 1.dp.toPx()
+          )
+        }
+
+        // Radios de los 6 ejes
+        for (i in 0..5) {
+          val angle = -PI / 2 + i * (PI / 3)
+          val end = Offset(
+            (center.x + maxRadius * cos(angle)).toFloat(),
+            (center.y + maxRadius * sin(angle)).toFloat()
+          )
+          drawLine(
+            color = BorderLight,
+            start = center,
+            end = end,
+            strokeWidth = 1.dp.toPx()
+          )
+        }
+
+        // ==========================================
+        // CAPA 1: PERCIBIDO (Contorno punteado)
+        // ==========================================
+        val perceivedPath = Path()
+        val perceivedPoints = (0..5).map { i ->
+          val r = maxRadius * animatedPerceived[i]
+          val angle = -PI / 2 + i * (PI / 3)
+          Offset(
+            (center.x + r * cos(angle)).toFloat(),
+            (center.y + r * sin(angle)).toFloat()
+          )
+        }
+
+        perceivedPath.moveTo(perceivedPoints[0].x, perceivedPoints[0].y)
+        for (i in 1 until perceivedPoints.size) {
+          perceivedPath.lineTo(perceivedPoints[i].x, perceivedPoints[i].y)
+        }
+        perceivedPath.close()
+
+        // Trazo punteado para el percibido
+        drawPath(
+          path = perceivedPath,
+          color = Color(0xFF64748B),
+          style = Stroke(
+            width = 2.dp.toPx(),
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f),
+            join = StrokeJoin.Round,
+            cap = StrokeCap.Round
+          )
+        )
+
+        // Puntos abiertos en los vértices del percibido
+        perceivedPoints.forEach { pt ->
+          drawCircle(
+            color = Color.White,
+            radius = 3.5.dp.toPx(),
+            center = pt
+          )
+          drawCircle(
+            color = Color(0xFF64748B),
+            radius = 2.5.dp.toPx(),
+            center = pt,
+            style = Stroke(width = 1.2.dp.toPx())
+          )
+        }
+
+        // ==========================================
+        // CAPA 2: REAL (Relleno translúcido + contorno)
+        // Solo si hay datos reales registrados; Día 1 sin datos NO muestra relleno vacío.
+        // ==========================================
+        if (hasRealData) {
+          val realPath = Path()
+          val realPoints = (0..5).map { i ->
+            val r = maxRadius * animatedReal[i]
+            val angle = -PI / 2 + i * (PI / 3)
+            Offset(
+              (center.x + r * cos(angle)).toFloat(),
+              (center.y + r * sin(angle)).toFloat()
+            )
+          }
+
+          realPath.moveTo(realPoints[0].x, realPoints[0].y)
+          for (i in 1 until realPoints.size) {
+            realPath.lineTo(realPoints[i].x, realPoints[i].y)
+          }
+          realPath.close()
+
+          // Relleno degradado con transparencia
+          drawPath(
+            path = realPath,
+            brush = Brush.radialGradient(
+              colors = listOf(
+                AccentCharcoal.copy(alpha = 0.32f),
+                AccentCharcoal.copy(alpha = 0.08f)
+              ),
+              center = center,
+              radius = maxRadius
+            ),
+            style = Fill
+          )
+
+          // Borde sólido
+          drawPath(
+            path = realPath,
+            color = AccentCharcoal,
+            style = Stroke(
+              width = 2.6.dp.toPx(),
+              join = StrokeJoin.Round,
+              cap = StrokeCap.Round
+            )
+          )
+
+          // Vértices y resplandor interactivo
+          realPoints.forEachIndexed { i, pt ->
+            val isSelected = selectedDimensionIndex == i
+            val dimColor = dimensions[i].accentColor
+
+            if (isSelected) {
+              drawCircle(
+                color = dimColor.copy(alpha = 0.30f),
+                radius = 14.dp.toPx(),
+                center = pt
+              )
+            }
+            drawCircle(
+              color = Color.White,
+              radius = 5.dp.toPx(),
+              center = pt
+            )
+            drawCircle(
+              color = dimColor,
+              radius = 4.dp.toPx(),
+              center = pt
+            )
+          }
+        }
+      }
+    }
+
+    // Mensaje para Día 1 sin datos reales
+    if (!hasRealData) {
+      Spacer(modifier = Modifier.height(10.dp))
+      Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceVariantLight,
+        modifier = Modifier.padding(horizontal = 20.dp)
+      ) {
+        Text(
+          text = "Tu hexágono real se dibuja con lo que hagas esta semana",
+          style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+          color = TextSecondaryLight,
+          modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // Chips interactivos de dimensiones con su puntaje real y percibido
+    FlowRow(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 8.dp),
+      horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      dimensions.forEach { dim ->
+        val isSelected = selectedDimensionIndex == dim.index
+        val perceived = perceivedScores[dim.index] ?: 5
+        val real = (realScores[dim.index] ?: 0f).toInt()
+
+        Surface(
+          onClick = { onDimensionSelect(dim.index) },
+          shape = RoundedCornerShape(14.dp),
+          color = if (isSelected) AccentCharcoal else SurfaceCardLight,
+          border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isSelected) AccentCharcoal else BorderLight
+          ),
+          modifier = Modifier.bouncyClick(scaleDown = 0.95f) {
+            onDimensionSelect(dim.index)
+          }
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Box(
+              modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(dim.accentColor)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = dim.title,
+              style = MaterialTheme.typography.labelMedium,
+              color = if (isSelected) Color.White else TextPrimaryLight
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            if (hasRealData) {
+              Text(
+                text = "$real",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = if (isSelected) dim.accentColor else AccentCharcoal
+              )
+              Text(
+                text = " / $perceived",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isSelected) Color.White.copy(alpha = 0.7f) else TextSecondaryLight
+              )
+            } else {
+              Text(
+                text = "$perceived",
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = if (isSelected) dim.accentColor else TextSecondaryLight
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

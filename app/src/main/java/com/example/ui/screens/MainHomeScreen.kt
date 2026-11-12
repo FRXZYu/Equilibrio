@@ -34,7 +34,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,24 +44,43 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.AssignmentTurnedIn
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.EventRepeat
 import androidx.compose.material.icons.outlined.Hexagon
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Spa
 import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.WorkspacePremium
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.AssessmentRepository
+import com.example.data.BalanceRepository
+import com.example.data.db.MissionEntity
+import com.example.domain.HexagonCalculator
+import com.example.model.GamificationStats
+import com.example.ui.components.DualLayerHexagonRadarChart
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -137,16 +158,59 @@ fun MainHomeScreen(
   var isFabExpanded by remember { mutableStateOf(false) }
   var showCreateMissionDialog by remember { mutableStateOf(false) }
 
-  // Missions state (tailored to user's weakest dimensions)
-  val missionsList = remember(report.scores) {
-    mutableStateListOf<BalanceMission>().apply {
-      addAll(MissionsProvider.generateMissionsForUser(report.scores))
+  val context = LocalContext.current
+  val haptic = LocalHapticFeedback.current
+  val scope = rememberCoroutineScope()
+  val balanceRepository = remember { BalanceRepository(context) }
+
+  // Estados reactivos derivados 100% de Room (sin datos simulados)
+  val liveProfile by balanceRepository.userProfileFlow.collectAsStateWithLifecycle(initialValue = userProfile)
+  val realScoresFloat by balanceRepository.realScoresFloat.collectAsStateWithLifecycle(initialValue = emptyMap())
+  val realScores by balanceRepository.realScores.collectAsStateWithLifecycle(initialValue = emptyMap())
+  val todayCompletedIds by balanceRepository.todayCompletedMissionIds.collectAsStateWithLifecycle(initialValue = emptySet())
+  val customMissionsEntities by balanceRepository.customMissions.collectAsStateWithLifecycle(initialValue = emptyList())
+
+  // Diálogos de detalle y estado de misiones expandidas
+  var selectedDimensionForDetail by remember { mutableStateOf<Int?>(null) }
+  var activeDetailMission by remember { mutableStateOf<BalanceMission?>(null) }
+  var isOtherMissionsExpanded by remember { mutableStateOf(false) }
+
+  // Misiones combinadas (sugeridas por MissionsProvider + personalizadas de Room)
+  val allMissions = remember(report.scores, customMissionsEntities, todayCompletedIds) {
+    val base = MissionsProvider.generateMissionsForUser(report.scores)
+    val custom = customMissionsEntities.map { entity ->
+      val dim = DimensionsProvider.dimensions.getOrNull(entity.dimensionIndex) ?: DimensionsProvider.dimensions[0]
+      BalanceMission(
+        id = entity.id,
+        dimensionIndex = entity.dimensionIndex,
+        dimensionTitle = dim.title,
+        title = entity.title,
+        summary = entity.description.take(70),
+        description = entity.description,
+        steps = listOf(
+          "Paso 1 (Preparación): Define tu espacio y propósito para ${entity.title}.",
+          "Paso 2 (Ejecución): Realiza la actividad con presencia durante ${entity.durationLabel}.",
+          "Paso 3 (Reflexión): Agradece tu compromiso con tu bienestar integral."
+        ),
+        benefit = entity.benefit,
+        durationLabel = entity.durationLabel,
+        baseExpReward = entity.expReward,
+        isWeaknessFocus = false,
+        hasMultiplier = false,
+        expReward = entity.expReward,
+        isCompleted = false,
+        isSavedForLater = false,
+        isCustom = true,
+        difficulty = entity.difficulty,
+        isHabit = entity.isHabit
+      )
+    }
+    (custom + base).map { m ->
+      m.copy(
+        isCompleted = todayCompletedIds.contains(m.id)
+      )
     }
   }
-
-  // Dynamic user stats based on completed missions
-  var currentExp by remember { mutableIntStateOf(userProfile.exp) }
-  var completedMissionsCount by remember { mutableIntStateOf(userProfile.completedMissions) }
 
   val homeScrollState = rememberScrollState()
 
@@ -169,424 +233,75 @@ fun MainHomeScreen(
       ) {
         if (selectedTab == 0) {
           // ==========================================
-          // APARTADO DE MISIONES (ENFOCADO EN DEBILIDADES)
+          // APARTADO DE MISIONES (CATEGORÍAS & CATÁLOGO)
           // ==========================================
+          val gamificationStats = GamificationStats(
+            totalExp = liveProfile.exp,
+            expToday = liveProfile.expToday,
+            completedMissionsCount = liveProfile.completedMissions,
+            activeStreakDays = liveProfile.activeStreakDays,
+            completedMissionIds = todayCompletedIds
+          )
           MissionsSection(
             report = report,
-            missions = missionsList,
-            onToggleMission = { mission ->
-              val index = missionsList.indexOfFirst { it.id == mission.id }
-              if (index >= 0) {
-                val newStatus = !missionsList[index].isCompleted
-                missionsList[index] = missionsList[index].copy(isCompleted = newStatus)
-                if (newStatus) {
-                  currentExp += mission.expReward
-                  completedMissionsCount += 1
-                } else {
-                  currentExp = (currentExp - mission.expReward).coerceAtLeast(userProfile.exp)
-                  completedMissionsCount = (completedMissionsCount - 1).coerceAtLeast(userProfile.completedMissions)
-                }
+            missions = allMissions,
+            gamificationStats = gamificationStats,
+            onCompleteMission = { mission ->
+              scope.launch {
+                balanceRepository.toggleMissionCompletion(
+                  mission.id,
+                  mission.dimensionIndex,
+                  mission.expReward
+                )
               }
+              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            },
+            onSaveMissionForLater = { mission ->
+              balanceRepository.toggleSaveMissionForLater(mission.id)
             },
             onOpenReport = onOpenReport,
             onOpenCreateMission = { showCreateMissionDialog = true }
           )
+        } else if (selectedTab == 1) {
+          // ==========================================
+          // APARTADO DE HABILIDADES (RESUMEN INTERACTIVO Y DETALLES)
+          // ==========================================
+          HabilidadesSection(
+            report = report,
+            realScores = realScores,
+            realScoresFloat = realScoresFloat,
+            allMissions = allMissions,
+            onLaunchMission = { mission ->
+              activeDetailMission = mission
+            },
+            onOpenCreateMission = {
+              showCreateMissionDialog = true
+            }
+          )
         } else {
-          // ==========================================
-          // INICIO: ESTRUCTURA DE LA IMAGEN DE REFERENCIA
-          // ==========================================
-          Column(
-            modifier = Modifier
-              .fillMaxSize()
-              .verticalScroll(homeScrollState)
-              .padding(horizontal = 24.dp, vertical = 16.dp)
-          ) {
-            // 1. Header: Greeting & Core Purpose of Personal Balance
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Column {
-                Text(
-                  text = if (userProfile.name.isNotEmpty()) "Hi! ${userProfile.name}" else "Hi! Kirenia",
-                  style = MaterialTheme.typography.displayLarge.copy(
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold
-                  ),
-                  color = TextPrimaryLight
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                  text = "Es hora de cultivar tu equilibrio",
-                  style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                  ),
-                  color = TextSecondaryLight
+          HoySection(
+            userProfile = liveProfile,
+            report = report,
+            realScores = realScores,
+            realScoresFloat = realScoresFloat,
+            todayCompletedIds = todayCompletedIds,
+            allMissions = allMissions,
+            selectedDimensionForDetail = selectedDimensionForDetail,
+            onSelectDimension = { selectedDimensionForDetail = it },
+            onToggleCompleteMission = { mission ->
+              scope.launch {
+                balanceRepository.toggleMissionCompletion(
+                  mission.id,
+                  mission.dimensionIndex,
+                  mission.expReward
                 )
               }
-
-              // Subtle zodiac chip
-              if (userProfile.zodiacSymbol.isNotEmpty()) {
-                Surface(
-                  shape = RoundedCornerShape(12.dp),
-                  color = SurfaceCardLight,
-                  border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight)
-                ) {
-                  Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                  ) {
-                    Text(
-                      text = userProfile.zodiacSymbol,
-                      style = MaterialTheme.typography.titleMedium,
-                      color = AccentCharcoal
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                      text = userProfile.zodiacSign,
-                      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                      color = TextSecondaryLight
-                    )
-                  }
-                }
-              }
+              haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            },
+            onViewMissionDetails = { mission ->
+              activeDetailMission = mission
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 2. Star Level & Progress Bar (Minimalist Light Styling)
-            Row(
-              verticalAlignment = Alignment.CenterVertically,
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              // Golden 8-pointed Star Badge
-              Box(
-                modifier = Modifier.size(52.dp),
-                contentAlignment = Alignment.Center
-              ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                  drawEightPointStar(
-                    center = Offset(size.width / 2f, size.height / 2f),
-                    outerRadius = size.minDimension / 2f,
-                    innerRadius = size.minDimension / 3.4f,
-                    color = Color(0xFFF59E0B) // Radiant Gold Star
-                  )
-                }
-                Text(
-                  text = "${userProfile.level}",
-                  style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                  ),
-                  color = Color.White
-                )
-              }
-
-              Spacer(modifier = Modifier.width(10.dp))
-
-              // Minimalist Progress Bar with Rank
-              Box(
-                modifier = Modifier
-                  .weight(1f)
-                  .height(36.dp)
-                  .clip(RoundedCornerShape(18.dp))
-                  .background(SurfaceCardLight)
-                  .border(1.dp, BorderLight, RoundedCornerShape(18.dp))
-                  .padding(horizontal = 4.dp),
-                contentAlignment = Alignment.CenterStart
-              ) {
-                // Active progress bar fill
-                Box(
-                  modifier = Modifier
-                    .fillMaxWidth(0.42f)
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(AccentCharcoal)
-                )
-
-                Row(
-                  modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically
-                ) {
-                  Text(
-                    text = "Nivel 2",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
-                  )
-                  Text(
-                    text = userProfile.rank,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = TextPrimaryLight
-                  )
-                }
-              }
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // 3. Hero Section Side-by-Side: Circular Photo + Spiderweb Hexagon Radar
-            Surface(
-              shape = RoundedCornerShape(26.dp),
-              color = SurfaceCardLight,
-              border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-              shadowElevation = 2.dp,
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                // Left: Circular Profile Picture
-                Box(
-                  modifier = Modifier
-                    .size(126.dp)
-                    .shadow(4.dp, CircleShape)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFFDFBA))
-                    .border(3.dp, BorderLight, CircleShape),
-                  contentAlignment = Alignment.Center
-                ) {
-                  if (userProfile.photoUri != null) {
-                    AsyncImage(
-                      model = Uri.parse(userProfile.photoUri),
-                      contentDescription = "Foto de perfil",
-                      contentScale = ContentScale.Crop,
-                      modifier = Modifier.fillMaxSize()
-                    )
-                  } else {
-                    IllustratedAvatar()
-                  }
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                // Right: Spiderweb Hexagonal Radar (Live statistical representation)
-                Column(
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  modifier = Modifier
-                    .weight(1f)
-                    .bouncyClick { onOpenReport() }
-                    .testTag("spiderweb_hexagon_widget")
-                ) {
-                  SpiderwebHexagonCanvas(
-                    scores = report.scores,
-                    modifier = Modifier.size(136.dp)
-                  )
-                  Spacer(modifier = Modifier.height(6.dp))
-                  Text(
-                    text = "Toca para ver análisis",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                    color = TextTertiaryLight
-                  )
-                }
-              }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 4. Stats Row Card (EXP, Misiones, Día) - Pristine White Minimalist Card
-            Surface(
-              shape = RoundedCornerShape(24.dp),
-              color = SurfaceCardLight,
-              border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-              shadowElevation = 2.dp,
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(vertical = 18.dp, horizontal = 14.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                // Column 1: EXP
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                  Text(
-                    text = "EXP",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                      fontWeight = FontWeight.Bold,
-                      letterSpacing = 1.sp
-                    ),
-                    color = TextTertiaryLight
-                  )
-                  Spacer(modifier = Modifier.height(2.dp))
-                  Text(
-                    text = "+$currentExp",
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                      fontWeight = FontWeight.Bold,
-                      fontSize = 22.sp
-                    ),
-                    color = TextPrimaryLight
-                  )
-                  Text(
-                    text = "+${userProfile.expToday} hoy",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF10B981)
-                  )
-                }
-
-                // Vertical Divider
-                Box(
-                  modifier = Modifier
-                    .width(1.dp)
-                    .height(42.dp)
-                    .background(BorderLight)
-                )
-
-                // Column 2: Misiones
-                Column(
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  modifier = Modifier.clickable { selectedTab = 0 }
-                ) {
-                  Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                      imageVector = Icons.Default.CheckCircle,
-                      contentDescription = null,
-                      tint = Color(0xFF10B981),
-                      modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                      text = "Misiones",
-                      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                      color = TextTertiaryLight
-                    )
-                  }
-                  Spacer(modifier = Modifier.height(2.dp))
-                  Text(
-                    text = "$completedMissionsCount",
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                      fontWeight = FontWeight.Bold,
-                      fontSize = 22.sp
-                    ),
-                    color = TextPrimaryLight
-                  )
-                  Text(
-                    text = "Completadas",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondaryLight
-                  )
-                }
-
-                // Vertical Divider
-                Box(
-                  modifier = Modifier
-                    .width(1.dp)
-                    .height(42.dp)
-                    .background(BorderLight)
-                )
-
-                // Column 3: Día / Racha
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                  Text(
-                    text = "DÍA",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                      fontWeight = FontWeight.Bold,
-                      letterSpacing = 1.sp
-                    ),
-                    color = TextTertiaryLight
-                  )
-                  Spacer(modifier = Modifier.height(2.dp))
-                  Text(
-                    text = "${userProfile.activeStreakDays}",
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                      fontWeight = FontWeight.Bold,
-                      fontSize = 22.sp
-                    ),
-                    color = TextPrimaryLight
-                  )
-                  Text(
-                    text = "Racha Activa",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFFF59E0B)
-                  )
-                }
-              }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 5. Purpose & Goal Card ("¿Por qué empezaste?")
-            Surface(
-              shape = RoundedCornerShape(24.dp),
-              color = SurfaceCardLight,
-              border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-              shadowElevation = 2.dp,
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Column(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(20.dp)
-              ) {
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically
-                ) {
-                  Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                      modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(AccentCharcoal.copy(alpha = 0.08f)),
-                      contentAlignment = Alignment.Center
-                    ) {
-                      Icon(
-                        imageVector = Icons.Default.Explore,
-                        contentDescription = null,
-                        tint = AccentCharcoal,
-                        modifier = Modifier.size(16.dp)
-                      )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                      text = "¿Por qué empezaste?",
-                      style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp
-                      ),
-                      color = TextSecondaryLight
-                    )
-                  }
-
-                  IconButton(
-                    onClick = { showEditGoalDialog = true },
-                    modifier = Modifier.size(32.dp)
-                  ) {
-                    Icon(
-                      imageVector = Icons.Default.Edit,
-                      contentDescription = "Editar meta",
-                      tint = AccentCharcoal,
-                      modifier = Modifier.size(16.dp)
-                    )
-                  }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                  text = "“${userProfile.monthlyGoal}”",
-                  style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    lineHeight = 26.sp
-                  ),
-                  color = TextPrimaryLight
-                )
-              }
-            }
-
-            Spacer(modifier = Modifier.height(120.dp))
-          }
+          )
         }
       }
 
@@ -630,14 +345,13 @@ fun MainHomeScreen(
               modifier = Modifier.weight(1f),
               onClick = {
                 selectedTab = 1
-                onOpenReport()
               }
             )
 
-            // Tab 2: Inicio
+            // Tab 2: Hoy
             NavBottomItem(
               icon = Icons.Outlined.Person,
-              label = "Inicio",
+              label = "Hoy",
               isSelected = selectedTab == 2,
               modifier = Modifier.weight(1f),
               onClick = { selectedTab = 2 }
@@ -765,14 +479,75 @@ fun MainHomeScreen(
     }
   }
 
-  // Dialog to Create Custom Mission & Habit
+  // Dialog to Create Custom Mission & Habit (Room persistence)
   if (showCreateMissionDialog) {
     CreateMissionDialog(
       onDismiss = { showCreateMissionDialog = false },
       onMissionCreated = { newMission ->
-        missionsList.add(0, newMission)
+        scope.launch {
+          balanceRepository.insertCustomMission(
+            MissionEntity(
+              id = newMission.id,
+              dimensionIndex = newMission.dimensionIndex,
+              title = newMission.title,
+              description = newMission.description,
+              benefit = newMission.benefit,
+              durationLabel = newMission.durationLabel,
+              expReward = newMission.expReward,
+              difficulty = newMission.difficulty,
+              isHabit = newMission.isHabit
+            )
+          )
+        }
         showCreateMissionDialog = false
-        selectedTab = 0 // Switch to Misiones tab so user immediately sees their created mission!
+        selectedTab = 0
+      }
+    )
+  }
+
+  // Dialog to View Dimension Diagnostic from Hexagon
+  if (selectedDimensionForDetail != null) {
+    DimensionDetailDialog(
+      dimensionIndex = selectedDimensionForDetail!!,
+      report = report,
+      realScore = realScores[selectedDimensionForDetail!!] ?: 0,
+      onDismiss = { selectedDimensionForDetail = null }
+    )
+  }
+
+  // Dialog to View Mission Detailed Steps
+  val currentDetailMission = activeDetailMission
+  if (currentDetailMission != null) {
+    MissionDetailModal(
+      mission = currentDetailMission,
+      stats = GamificationStats(
+        totalExp = liveProfile.exp,
+        expToday = liveProfile.expToday,
+        completedMissionsCount = liveProfile.completedMissions,
+        activeStreakDays = liveProfile.activeStreakDays,
+        completedMissionIds = todayCompletedIds
+      ),
+      onDismiss = { activeDetailMission = null },
+      onComplete = {
+        val missionId = currentDetailMission.id
+        val dimIndex = currentDetailMission.dimensionIndex
+        val exp = currentDetailMission.expReward
+        activeDetailMission = null
+        scope.launch {
+          balanceRepository.toggleMissionCompletion(
+            missionId,
+            dimIndex,
+            exp
+          )
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+      },
+      onSaveForLater = {
+        val missionId = currentDetailMission.id
+        activeDetailMission = null
+        scope.launch {
+          balanceRepository.toggleSaveMissionForLater(missionId)
+        }
       }
     )
   }
@@ -831,27 +606,45 @@ fun MainHomeScreen(
 private fun MissionsSection(
   report: AssessmentReport,
   missions: List<BalanceMission>,
-  onToggleMission: (BalanceMission) -> Unit,
+  gamificationStats: GamificationStats,
+  onCompleteMission: (BalanceMission) -> Unit,
+  onSaveMissionForLater: (BalanceMission) -> Unit,
   onOpenReport: () -> Unit,
   onOpenCreateMission: () -> Unit
 ) {
-  var filterWeaknessesOnly by remember { mutableStateOf(true) }
+  // Categorías de las 6 habilidades, con ⭐ Recomendadas (debilidades) de primero y 📌 Guardadas al final
+  var selectedCategoryIndex by remember { mutableIntStateOf(0) }
+  var activeDetailMission by remember { mutableStateOf<BalanceMission?>(null) }
 
-  val filteredMissions = if (filterWeaknessesOnly) {
-    missions.filter { it.isWeaknessFocus }
-  } else {
-    missions
+  val categories = remember {
+    listOf(
+      "Recomendadas",
+      "Autoestima",
+      "Ejercicio",
+      "Descanso",
+      "Relaciones",
+      "Hobbies",
+      "Excelencia",
+      "Guardadas"
+    )
   }
 
-  val weakDimensions = DimensionsProvider.dimensions.filter { (report.scores[it.index] ?: 5) <= 6 }
+  val filteredMissions = remember(selectedCategoryIndex, missions) {
+    when (selectedCategoryIndex) {
+      0 -> missions.filter { it.isWeaknessFocus }
+      in 1..6 -> missions.filter { it.dimensionIndex == selectedCategoryIndex - 1 }
+      7 -> missions.filter { it.isSavedForLater }
+      else -> missions
+    }
+  }
 
   LazyColumn(
     modifier = Modifier
       .fillMaxSize()
-      .padding(horizontal = 24.dp),
+      .padding(horizontal = 22.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp)
   ) {
-    // Top Title & Context
+    // 1. Encabezado principal: Título y Acciones
     item(key = "missions_header") {
       Column(modifier = Modifier.padding(top = 16.dp)) {
         Row(
@@ -910,7 +703,7 @@ private fun MissionsSection(
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                  text = "Tu Hexágono",
+                  text = "Hexágono",
                   style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                   color = AccentCharcoal
                 )
@@ -919,90 +712,187 @@ private fun MissionsSection(
           }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        Text(
-          text = "Actividades productivas diseñadas para elevar tus dimensiones prioritarias y cultivar bienestar integral.",
-          style = MaterialTheme.typography.bodyMedium,
-          color = TextSecondaryLight
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Weakness Focus Alert Banner
+        // 2. Tarjeta interactiva del Sistema de EXP Diario y Racha (con Límite Anti-Abuso)
         Surface(
           shape = RoundedCornerShape(20.dp),
-          color = Color(0xFFEFF6FF),
-          border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+          color = Color.White,
+          border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
+          shadowElevation = 2.dp,
           modifier = Modifier.fillMaxWidth()
         ) {
           Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(
-                imageVector = Icons.Outlined.Lightbulb,
-                contentDescription = null,
-                tint = Color(0xFF1D4ED8),
-                modifier = Modifier.size(20.dp)
-              )
-              Spacer(modifier = Modifier.width(8.dp))
-              Text(
-                text = "ENFOQUE EN TUS DEBILIDADES",
-                style = MaterialTheme.typography.labelMedium.copy(
-                  fontWeight = FontWeight.Bold,
-                  letterSpacing = 0.5.sp
-                ),
-                color = Color(0xFF1D4ED8)
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                  modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFEF3C7)),
+                  contentAlignment = Alignment.Center
+                ) {
+                  Icon(
+                    imageVector = Icons.Default.ElectricBolt,
+                    contentDescription = null,
+                    tint = Color(0xFFD97706),
+                    modifier = Modifier.size(16.dp)
+                  )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                  Text(
+                    text = "EXP Hoy: ${gamificationStats.expToday} / ${GamificationStats.DAILY_EXP_CAP} EXP",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = TextPrimaryLight
+                  )
+                  Text(
+                    text = if (gamificationStats.isDailyCapReached) "Tope diario alcanzado" else "Quedan ${gamificationStats.remainingDailyExp} EXP hoy",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (gamificationStats.isDailyCapReached) Color(0xFFD97706) else TextSecondaryLight
+                  )
+                }
+              }
+
+              Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFFFEF3C7)
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                  verticalAlignment = Alignment.CenterVertically
+                ) {
+                  Icon(
+                    imageVector = Icons.Outlined.LocalFireDepartment,
+                    contentDescription = null,
+                    tint = Color(0xFFD97706),
+                    modifier = Modifier.size(14.dp)
+                  )
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text(
+                    text = "${gamificationStats.activeStreakDays} días racha",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF92400E)
+                  )
+                }
+              }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Barra de progreso del límite diario de EXP
+            val dailyProgress = (gamificationStats.expToday.toFloat() / GamificationStats.DAILY_EXP_CAP).coerceIn(0f, 1f)
+            Box(
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceVariantLight)
+            ) {
+              Box(
+                modifier = Modifier
+                  .fillMaxWidth(dailyProgress)
+                  .height(8.dp)
+                  .clip(RoundedCornerShape(4.dp))
+                  .background(if (gamificationStats.isDailyCapReached) Color(0xFFF59E0B) else AccentCharcoal)
               )
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-              text = if (weakDimensions.isNotEmpty()) {
-                "Tus áreas que más necesitan recarga hoy son: ${weakDimensions.joinToString { it.title }}. Completa estas misiones para restablecer la armonía."
-              } else {
-                "Tu equilibrio general es sólido. Mantén el ritmo con estas prácticas diarias de bienestar."
-              },
-              style = MaterialTheme.typography.bodyMedium,
-              color = Color(0xFF1E3A8A)
-            )
           }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Filter chips: "Tus Debilidades" vs "Todas"
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          FilterChip(
-            selected = filterWeaknessesOnly,
-            onClick = { filterWeaknessesOnly = true },
-            label = { Text("Tus Debilidades (${missions.count { it.isWeaknessFocus }})") },
-            colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = AccentCharcoal,
-              selectedLabelColor = Color.White
-            ),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.bouncyClick { filterWeaknessesOnly = true }
-          )
+        // 3. Selector de Categorías (Recomendadas de primero, luego las 6 dimensiones, y Guardadas)
+        LazyRow(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          itemsIndexed(categories) { index, catName ->
+            val isSelected = selectedCategoryIndex == index
+            Surface(
+              shape = RoundedCornerShape(14.dp),
+              color = if (isSelected) AccentCharcoal else Color.White,
+              border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (isSelected) AccentCharcoal else BorderLight
+              ),
+              modifier = Modifier.bouncyClick { selectedCategoryIndex = index }
+            ) {
+              Text(
+                text = catName,
+                style = MaterialTheme.typography.labelMedium.copy(
+                  fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                ),
+                color = if (isSelected) Color.White else TextPrimaryLight,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+              )
+            }
+          }
+        }
 
-          FilterChip(
-            selected = !filterWeaknessesOnly,
-            onClick = { filterWeaknessesOnly = false },
-            label = { Text("Todas (${missions.size})") },
-            colors = FilterChipDefaults.filterChipColors(
-              selectedContainerColor = AccentCharcoal,
-              selectedLabelColor = Color.White
-            ),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.bouncyClick { filterWeaknessesOnly = false }
-          )
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 4. Banner contextual explicativo
+        if (selectedCategoryIndex == 0) {
+          Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFFEFF6FF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                  imageVector = Icons.Outlined.Lightbulb,
+                  contentDescription = null,
+                  tint = Color(0xFF1D4ED8),
+                  modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                  text = "ÁREAS PRIORITARIAS • 1.5x EXP",
+                  style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                  ),
+                  color = Color(0xFF1D4ED8)
+                )
+              }
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(
+                text = "Tus dimensiones con menor puntaje actual otorgan +50% de EXP. Complétalas para fortalecer tu armonía vital.",
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                color = Color(0xFF1E3A8A)
+              )
+            }
+          }
+        } else if (selectedCategoryIndex == 7) {
+          Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFFF9FAFB),
+            border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Text(
+              text = if (filteredMissions.isEmpty()) "Aún no tienes misiones guardadas. Abre cualquier misión y pulsa 'Guardar para más tarde'." else "Misiones que guardaste para realizar en otro momento.",
+              style = MaterialTheme.typography.bodySmall,
+              color = TextSecondaryLight,
+              modifier = Modifier.padding(14.dp)
+            )
+          }
         }
       }
     }
 
-    // List of Mission Cards
+    // 5. Lista de tarjetas de misión compactas con botón "Continuar"
     items(filteredMissions, key = { it.id }) { mission ->
-      MissionCard(
+      CompactMissionCard(
         mission = mission,
-        onToggle = { onToggleMission(mission) }
+        onContinue = { activeDetailMission = mission }
       )
     }
 
@@ -1012,10 +902,14 @@ private fun MissionsSection(
   }
 }
 
+/**
+ * Tarjeta de misión compacta y minimalista.
+ * Muestra solo un resumen básico con botón "Continuar" para desplegar la información completa.
+ */
 @Composable
-private fun MissionCard(
+internal fun CompactMissionCard(
   mission: BalanceMission,
-  onToggle: () -> Unit
+  onContinue: () -> Unit
 ) {
   val dimension = DimensionsProvider.dimensions.getOrNull(mission.dimensionIndex)
   val accentColor = dimension?.accentColor ?: AccentCharcoal
@@ -1030,169 +924,176 @@ private fun MissionCard(
     shadowElevation = if (mission.isCompleted) 1.dp else 2.dp,
     modifier = Modifier
       .fillMaxWidth()
-      .bouncyClick { onToggle() }
+      .bouncyClick { onContinue() }
       .testTag("mission_card_${mission.id}")
   ) {
-    Row(
+    Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(18.dp),
-      verticalAlignment = Alignment.Top
+        .padding(18.dp)
     ) {
-      // Checkbox / Circle
-      Box(
-        modifier = Modifier
-          .padding(top = 2.dp)
-          .size(28.dp)
-          .clip(CircleShape)
-          .background(if (mission.isCompleted) Color(0xFF10B981) else SurfaceVariantLight)
-          .border(
-            width = if (mission.isCompleted) 0.dp else 1.5.dp,
-            color = if (mission.isCompleted) Color(0xFF10B981) else Color(0xFF9CA3AF),
-            shape = CircleShape
-          ),
-        contentAlignment = Alignment.Center
+      // Fila superior: Dimensión + Estados (1.5x / Completada / Guardada)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        if (mission.isCompleted) {
-          Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = "Completada",
-            tint = Color.White,
-            modifier = Modifier.size(18.dp)
+        Surface(
+          shape = RoundedCornerShape(8.dp),
+          color = accentColor.copy(alpha = 0.12f)
+        ) {
+          Text(
+            text = mission.dimensionTitle.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
           )
         }
-      }
 
-      Spacer(modifier = Modifier.width(14.dp))
-
-      Column(modifier = Modifier.weight(1f)) {
-        // Tag row: Dimension name + Time + EXP reward
         Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = accentColor.copy(alpha = 0.12f)
-          ) {
-            Text(
-              text = mission.dimensionTitle.uppercase(),
-              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-              color = accentColor,
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-            )
-          }
-
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-              imageVector = Icons.Default.Timer,
-              contentDescription = null,
-              tint = TextTertiaryLight,
-              modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(3.dp))
-            Text(
-              text = mission.durationLabel,
-              style = MaterialTheme.typography.labelSmall,
-              color = TextSecondaryLight
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+          if (mission.isCompleted) {
             Surface(
               shape = RoundedCornerShape(8.dp),
-              color = Color(0xFFFEF3C7) // Gold/Amber pill
+              color = Color(0xFFDCFCE7)
             ) {
               Text(
-                text = "+${mission.expReward} EXP",
+                text = "✓ Completada",
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF92400E),
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                color = Color(0xFF15803D),
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
               )
             }
-          }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Mission Title
-        Text(
-          text = mission.title,
-          style = MaterialTheme.typography.titleMedium.copy(
-            fontWeight = FontWeight.Bold,
-            fontSize = 17.sp
-          ),
-          color = if (mission.isCompleted) TextSecondaryLight else TextPrimaryLight
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Mission Description
-        Text(
-          text = mission.description,
-          style = MaterialTheme.typography.bodyMedium,
-          color = TextSecondaryLight
-        )
-
-        if (mission.isHabit || mission.isCustom) {
-          Spacer(modifier = Modifier.height(6.dp))
-          Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            if (mission.isCustom) {
-              Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = AccentCharcoal.copy(alpha = 0.08f)
+          } else if (mission.isSavedForLater) {
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              color = Color(0xFFEFF6FF)
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
               ) {
+                Icon(
+                  imageVector = Icons.Default.Bookmark,
+                  contentDescription = null,
+                  tint = Color(0xFF1D4ED8),
+                  modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                  text = "TU MISIÓN",
-                  style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                  color = AccentCharcoal,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                  text = "Guardada",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = Color(0xFF1D4ED8)
                 )
               }
             }
-            if (mission.isHabit) {
-              Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = Color(0xFFEFF6FF)
+          }
+
+          if (mission.hasMultiplier) {
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              color = Color(0xFFFEF3C7)
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
               ) {
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                  Icon(
-                    imageVector = Icons.Outlined.EventRepeat,
-                    contentDescription = null,
-                    tint = Color(0xFF1D4ED8),
-                    modifier = Modifier.size(12.dp)
-                  )
-                  Spacer(modifier = Modifier.width(3.dp))
-                  Text(
-                    text = "Hábito: ${mission.habitDays.joinToString(", ")}",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                    color = Color(0xFF1D4ED8)
-                  )
-                }
+                Icon(
+                  imageVector = Icons.Default.ElectricBolt,
+                  contentDescription = null,
+                  tint = Color(0xFFD97706),
+                  modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                  text = "1.5x EXP",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = Color(0xFFB45309)
+                )
               }
             }
           }
         }
+      }
 
-        Spacer(modifier = Modifier.height(8.dp))
+      Spacer(modifier = Modifier.height(10.dp))
 
-        // Wellbeing impact explanation
-        Box(
-          modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceVariantLight)
-            .padding(10.dp)
+      // Título de la misión
+      Text(
+        text = mission.title,
+        style = MaterialTheme.typography.titleMedium.copy(
+          fontWeight = FontWeight.Bold,
+          fontSize = 17.sp
+        ),
+        color = if (mission.isCompleted) TextSecondaryLight else TextPrimaryLight
+      )
+
+      Spacer(modifier = Modifier.height(4.dp))
+
+      // Resumen básico conciso
+      Text(
+        text = mission.summary.ifEmpty { mission.description.take(85) + "..." },
+        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 20.sp),
+        color = TextSecondaryLight
+      )
+
+      Spacer(modifier = Modifier.height(12.dp))
+
+      // Fila inferior: Tiempo + EXP + Botón "Continuar"
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.Default.Timer,
+            contentDescription = null,
+            tint = TextTertiaryLight,
+            modifier = Modifier.size(14.dp)
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+          Text(
+            text = mission.durationLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSecondaryLight
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = if (mission.hasMultiplier) Color(0xFFFEF3C7) else SurfaceVariantLight
+          ) {
+            Text(
+              text = "+${mission.expReward} EXP",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = if (mission.hasMultiplier) Color(0xFF92400E) else TextPrimaryLight,
+              modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+            )
+          }
+        }
+
+        // Botón Continuar
+        Button(
+          onClick = onContinue,
+          shape = RoundedCornerShape(12.dp),
+          colors = ButtonDefaults.buttonColors(
+            containerColor = AccentCharcoal,
+            contentColor = Color.White
+          ),
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+          modifier = Modifier.testTag("btn_continue_mission_${mission.id}")
         ) {
           Text(
-            text = "Bienestar: ${mission.benefit}",
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-            color = TextPrimaryLight
+            text = "Ver Detalles",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp)
           )
         }
       }

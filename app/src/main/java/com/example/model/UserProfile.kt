@@ -22,16 +22,29 @@ val AllZodiacSigns = listOf(
   ZodiacSign("Piscis", "♓", "19 feb - 20 mar", "Agua")
 )
 
+/**
+ * Perfil de usuario con valores derivados exclusivamente de los registros reales de Room.
+ * Sin datos simulados ni valores falsos por defecto.
+ */
 data class UserProfile(
   val name: String = "",
   val photoUri: String? = null,
   val zodiacSign: String = "Aries",
   val zodiacSymbol: String = "♈",
   val monthlyGoal: String = "Quiero ser mi mejor versión",
-  val level: Int = 2,
+  val level: Int = 1,
   val rank: String = "Principiante",
-  val exp: Int = 200,
-  val expToday: Int = 20,
-  val completedMissions: Int = 10,
-  val activeStreakDays: Int = 3
-)
+  val exp: Int = 0,
+  val expToday: Int = 0,
+  val completedMissions: Int = 0,
+  val activeStreakDays: Int = 0
+) {
+  fun withStats(stats: GamificationStats): UserProfile = copy(
+    level = stats.level,
+    rank = stats.rank,
+    exp = stats.totalExp,
+    expToday = stats.expToday,
+    completedMissions = stats.completedMissionsCount,
+    activeStreakDays = stats.activeStreakDays
+  )
+}

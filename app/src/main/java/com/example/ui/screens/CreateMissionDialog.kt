@@ -532,11 +532,18 @@ fun CreateMissionDialog(
                 dimensionIndex = selectedDimIndex,
                 dimensionTitle = selectedDimension.title,
                 title = finalTitle,
+                summary = description.trim().take(90).ifEmpty { "Actividad para potenciar tu ${selectedDimension.title}." },
                 description = description.trim().ifEmpty {
                   "Actividad personalizada para potenciar tu nivel de ${selectedDimension.title}."
                 },
+                steps = listOf(
+                  "Paso 1 (Preparación): Prepara tu entorno y despeja cualquier distracción para enfocarte.",
+                  "Paso 2 (Ejecución): Realiza la actividad con atención plena durante el tiempo asignado.",
+                  "Paso 3 (Reflexión): Agradece tu compromiso con tu crecimiento y bienestar personal."
+                ),
                 benefit = "Fomenta equilibrio y coherencia personal de forma constante.",
                 durationLabel = if (selectedFrequency == "Diariamente") "Diario" else "Semanal",
+                baseExpReward = expAward,
                 expReward = expAward,
                 isWeaknessFocus = false,
                 isCompleted = false,
