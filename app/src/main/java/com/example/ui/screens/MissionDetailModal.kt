@@ -60,7 +60,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.model.BalanceMission
 import com.example.model.DimensionsProvider
 import com.example.model.GamificationStats
-import com.example.ui.components.bouncyClick
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.SurfaceCardLight
@@ -176,12 +177,15 @@ fun MissionDetailModal(
               }
             }
 
+            val closeInteraction = rememberBounceInteractionSource()
             IconButton(
               onClick = onDismiss,
+              interactionSource = closeInteraction,
               modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.05f))
+                .bouncyScale(closeInteraction, scaleDown = 0.90f)
             ) {
               Icon(
                 imageVector = Icons.Default.Close,
@@ -429,18 +433,22 @@ fun MissionDetailModal(
 
           // BOTONES DE ACCIÓN: COMPLETAR O GUARDAR PARA MÁS TARDE
           Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Botón 1: Completar
+            val completeInteraction = rememberBounceInteractionSource()
+            val saveInteraction = rememberBounceInteractionSource()
+
+            // Botón 1: Completar (en gris cuando ya fue completada)
             Button(
               onClick = onComplete,
+              interactionSource = completeInteraction,
               shape = RoundedCornerShape(16.dp),
               colors = ButtonDefaults.buttonColors(
-                containerColor = if (mission.isCompleted) Color(0xFF10B981) else AccentCharcoal,
-                contentColor = Color.White
+                containerColor = if (mission.isCompleted) Color(0xFFE5E7EB) else AccentCharcoal,
+                contentColor = if (mission.isCompleted) Color(0xFF4B5563) else Color.White
               ),
               modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
-                .bouncyClick()
+                .bouncyScale(completeInteraction)
                 .testTag("btn_complete_mission_detail")
             ) {
               Icon(
@@ -450,7 +458,7 @@ fun MissionDetailModal(
               )
               Spacer(modifier = Modifier.width(8.dp))
               Text(
-                text = if (mission.isCompleted) "¡Misión Completada!" else "Completar Misión",
+                text = if (mission.isCompleted) "Completada (Tocar para deshacer)" else "Completar Misión",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
               )
             }
@@ -458,6 +466,7 @@ fun MissionDetailModal(
             // Botón 2: Guardar para más tarde (sale de la misión y permite buscar otra)
             OutlinedButton(
               onClick = onSaveForLater,
+              interactionSource = saveInteraction,
               shape = RoundedCornerShape(16.dp),
               colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = AccentCharcoal
@@ -466,7 +475,7 @@ fun MissionDetailModal(
               modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
-                .bouncyClick()
+                .bouncyScale(saveInteraction)
                 .testTag("btn_save_for_later_mission_detail")
             ) {
               Icon(
@@ -477,7 +486,7 @@ fun MissionDetailModal(
               )
               Spacer(modifier = Modifier.width(8.dp))
               Text(
-                text = if (mission.isSavedForLater) "Quitar de guardadas y buscar otra" else "Guardar para más tarde",
+                text = if (mission.isSavedForLater) "Quitar de guardadas" else "Guardar para más tarde",
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
               )
             }

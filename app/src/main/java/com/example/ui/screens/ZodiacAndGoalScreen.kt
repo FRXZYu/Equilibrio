@@ -49,7 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AllZodiacSigns
 import com.example.model.ZodiacSign
-import com.example.ui.components.bouncyClick
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.CanvasBackgroundLight
@@ -136,16 +137,18 @@ fun ZodiacAndGoalScreen(
       ) {
         AllZodiacSigns.forEach { sign ->
           val isSelected = sign.name == selectedZodiac.name
+          val zodiacInteraction = rememberBounceInteractionSource()
 
           Surface(
             onClick = { selectedZodiac = sign },
+            interactionSource = zodiacInteraction,
             shape = RoundedCornerShape(18.dp),
             color = if (isSelected) AccentCharcoal else SurfaceCardLight,
             border = androidx.compose.foundation.BorderStroke(
               1.dp,
               if (isSelected) AccentCharcoal else BorderLight
             ),
-            modifier = Modifier.bouncyClick { selectedZodiac = sign }
+            modifier = Modifier.bouncyScale(zodiacInteraction)
           ) {
             Column(
               modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -241,11 +244,13 @@ fun ZodiacAndGoalScreen(
       Spacer(modifier = Modifier.height(24.dp))
     }
 
+    val finishInteraction = rememberBounceInteractionSource()
     Button(
       onClick = {
         val trimmedGoal = goal.trim().ifEmpty { "Quiero ser mi mejor versión" }
         onFinished(selectedZodiac.name, selectedZodiac.symbol, trimmedGoal)
       },
+      interactionSource = finishInteraction,
       shape = RoundedCornerShape(18.dp),
       colors = ButtonDefaults.buttonColors(
         containerColor = AccentCharcoal,
@@ -254,10 +259,7 @@ fun ZodiacAndGoalScreen(
       modifier = Modifier
         .fillMaxWidth()
         .height(54.dp)
-        .bouncyClick {
-          val trimmedGoal = goal.trim().ifEmpty { "Quiero ser mi mejor versión" }
-          onFinished(selectedZodiac.name, selectedZodiac.symbol, trimmedGoal)
-        }
+        .bouncyScale(finishInteraction)
         .testTag("btn_finish_onboarding")
     ) {
       Text(

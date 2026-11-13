@@ -251,6 +251,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun openSavedReport() {
+    val currentScores = repository.loadCurrentScores() ?: return
+    val previousScores = repository.loadPreviousScores()
+    val report = LifeAnalysisEngine.generateReport(currentScores, previousScores)
+    _uiState.value = AppScreenState.Report(
+      report = report,
+      selectedDimensionIndex = report.lowestDimension.index
+    )
+  }
+
+  fun backToNameInput() {
+    _uiState.value = AppScreenState.NameInput(currentName = pendingName)
+  }
+
+  fun backToProfilePhoto() {
+    _uiState.value = AppScreenState.ProfilePhoto(name = pendingName, photoUri = pendingPhotoUri)
+  }
+
   fun backToHomeFromReport() {
     if (repository.isProfileCompleted()) {
       val profile = repository.loadProfile()

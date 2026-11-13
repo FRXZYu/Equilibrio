@@ -60,6 +60,8 @@ import com.example.model.DimensionsProvider
 import com.example.ui.components.CompactHexagonProgress
 import com.example.ui.components.RatingSelector
 import com.example.ui.components.bouncyClick
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.CanvasBackgroundLight
@@ -319,8 +321,10 @@ fun QuestionnaireScreen(
       verticalAlignment = Alignment.CenterVertically
     ) {
       if (currentStep > 0) {
+        val prevInteraction = rememberBounceInteractionSource()
         OutlinedButton(
           onClick = onPrevious,
+          interactionSource = prevInteraction,
           shape = RoundedCornerShape(18.dp),
           colors = ButtonDefaults.outlinedButtonColors(
             contentColor = TextPrimaryLight
@@ -329,7 +333,7 @@ fun QuestionnaireScreen(
           modifier = Modifier
             .weight(0.35f)
             .height(54.dp)
-            .bouncyClick(onClick = onPrevious)
+            .bouncyScale(prevInteraction)
             .testTag("btn_previous_question")
         ) {
           Icon(
@@ -342,8 +346,10 @@ fun QuestionnaireScreen(
         }
       }
 
+      val nextInteraction = rememberBounceInteractionSource()
       Button(
         onClick = onNext,
+        interactionSource = nextInteraction,
         shape = RoundedCornerShape(18.dp),
         colors = ButtonDefaults.buttonColors(
           containerColor = AccentCharcoal,
@@ -352,7 +358,7 @@ fun QuestionnaireScreen(
         modifier = Modifier
           .weight(if (currentStep > 0) 0.65f else 1f)
           .height(54.dp)
-          .bouncyClick(onClick = onNext)
+          .bouncyScale(nextInteraction)
           .testTag("btn_next_question")
       ) {
         if (isLastStep) {

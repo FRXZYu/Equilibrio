@@ -532,17 +532,17 @@ fun ExpandedHexagonRadarChart(
         val prevScore = previousScores?.get(dim.index)
         val delta = if (prevScore != null) score - prevScore else null
 
+        val chipInteraction = rememberBounceInteractionSource()
         Surface(
           onClick = { onDimensionSelect(dim.index) },
+          interactionSource = chipInteraction,
           shape = RoundedCornerShape(16.dp),
           color = if (isSelected) AccentCharcoal else SurfaceCardLight,
           border = androidx.compose.foundation.BorderStroke(
             1.dp,
             if (isSelected) AccentCharcoal else BorderLight
           ),
-          modifier = Modifier.bouncyClick(scaleDown = 0.95f) {
-            onDimensionSelect(dim.index)
-          }
+          modifier = Modifier.bouncyScale(chipInteraction, scaleDown = 0.95f)
         ) {
           Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -592,21 +592,31 @@ private fun ViewModeButton(
   isSelected: Boolean,
   onClick: () -> Unit
 ) {
-  Box(
-    modifier = Modifier
-      .clip(RoundedCornerShape(10.dp))
-      .background(if (isSelected) AccentCharcoal else Color.Transparent)
-      .clickable(onClick = onClick)
-      .padding(horizontal = 12.dp, vertical = 6.dp),
-    contentAlignment = Alignment.Center
+  val interaction = rememberBounceInteractionSource()
+  val bg by androidx.compose.animation.animateColorAsState(
+    targetValue = if (isSelected) AccentCharcoal else Color.Transparent,
+    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+    label = "view_mode_bg_$title"
+  )
+  Surface(
+    onClick = onClick,
+    interactionSource = interaction,
+    shape = RoundedCornerShape(10.dp),
+    color = bg,
+    modifier = Modifier.bouncyScale(interaction, scaleDown = 0.93f)
   ) {
-    Text(
-      text = title,
-      style = MaterialTheme.typography.labelMedium.copy(
-        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-      ),
-      color = if (isSelected) Color.White else TextSecondaryLight
-    )
+    Box(
+      modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+      contentAlignment = Alignment.Center
+    ) {
+      Text(
+        text = title,
+        style = MaterialTheme.typography.labelMedium.copy(
+          fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+        ),
+        color = if (isSelected) Color.White else TextSecondaryLight
+      )
+    }
   }
 }
 
@@ -646,7 +656,10 @@ fun DualLayerHexagonRadarChart(
   realScores: Map<Int, Float>,
   selectedDimensionIndex: Int? = null,
   onDimensionSelect: (Int) -> Unit,
-  modifier: Modifier = Modifier
+  modifier: Modifier = Modifier,
+  chartSize: Dp = 280.dp,
+  showLegend: Boolean = true,
+  showChips: Boolean = true
 ) {
   val dimensions = DimensionsProvider.dimensions
   val hasRealData = realScores.values.any { it > 0.05f }
@@ -681,52 +694,54 @@ fun DualLayerHexagonRadarChart(
     modifier = modifier.fillMaxWidth(),
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
-    // Leyenda de las dos capas
-    Row(
-      horizontalArrangement = Arrangement.spacedBy(16.dp),
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      // Capa real
-      if (hasRealData) {
+    if (showLegend) {
+      // Leyenda de las dos capas
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        // Capa real
+        if (hasRealData) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+              modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(AccentCharcoal)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "Real (14 días)",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = TextPrimaryLight
+            )
+          }
+        }
+
+        // Capa percibida
         Row(verticalAlignment = Alignment.CenterVertically) {
           Box(
             modifier = Modifier
-              .size(10.dp)
-              .clip(CircleShape)
-              .background(AccentCharcoal)
+              .width(16.dp)
+              .height(3.dp)
+              .background(Color(0xFF8E95A2), shape = RoundedCornerShape(2.dp))
           )
           Spacer(modifier = Modifier.width(6.dp))
           Text(
-            text = "Real (14 días)",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = TextPrimaryLight
+            text = "Percibido (Cuestionario)",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+            color = TextSecondaryLight
           )
         }
       }
 
-      // Capa percibida
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-          modifier = Modifier
-            .width(16.dp)
-            .height(3.dp)
-            .background(Color(0xFF8E95A2), shape = RoundedCornerShape(2.dp))
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-          text = "Percibido (Cuestionario)",
-          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-          color = TextSecondaryLight
-        )
-      }
+      Spacer(modifier = Modifier.height(8.dp))
     }
-
-    Spacer(modifier = Modifier.height(8.dp))
 
     // Lienzo del Hexágono
     BoxWithConstraints(
       modifier = Modifier
-        .size(280.dp)
+        .size(chartSize)
         .testTag("dual_layer_hexagon_chart"),
       contentAlignment = Alignment.Center
     ) {
@@ -827,18 +842,27 @@ fun DualLayerHexagonRadarChart(
           )
         )
 
-        // Puntos abiertos en los vértices del percibido
-        perceivedPoints.forEach { pt ->
+        // Puntos en los vértices del percibido (resaltado en color si está seleccionado sin datos reales)
+        perceivedPoints.forEachIndexed { i, pt ->
+          val isSelected = !hasRealData && selectedDimensionIndex == i
+          val dimColor = dimensions[i].accentColor
+          if (isSelected) {
+            drawCircle(
+              color = dimColor.copy(alpha = 0.28f),
+              radius = 12.dp.toPx(),
+              center = pt
+            )
+          }
           drawCircle(
             color = Color.White,
-            radius = 3.5.dp.toPx(),
+            radius = if (isSelected) 5.dp.toPx() else 3.5.dp.toPx(),
             center = pt
           )
           drawCircle(
-            color = Color(0xFF64748B),
-            radius = 2.5.dp.toPx(),
+            color = if (isSelected) dimColor else Color(0xFF64748B),
+            radius = if (isSelected) 3.8.dp.toPx() else 2.5.dp.toPx(),
             center = pt,
-            style = Stroke(width = 1.2.dp.toPx())
+            style = if (isSelected) Fill else Stroke(width = 1.2.dp.toPx())
           )
         }
 
@@ -915,8 +939,8 @@ fun DualLayerHexagonRadarChart(
       }
     }
 
-    // Mensaje para Día 1 sin datos reales
-    if (!hasRealData) {
+    // Mensaje para Día 1 sin datos reales (solo en vista completa con chips)
+    if (!hasRealData && showChips) {
       Spacer(modifier = Modifier.height(10.dp))
       Surface(
         shape = RoundedCornerShape(12.dp),
@@ -932,67 +956,69 @@ fun DualLayerHexagonRadarChart(
       }
     }
 
-    Spacer(modifier = Modifier.height(12.dp))
+    if (showChips) {
+      Spacer(modifier = Modifier.height(12.dp))
 
-    // Chips interactivos de dimensiones con su puntaje real y percibido
-    FlowRow(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(horizontal = 8.dp),
-      horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-      verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-      dimensions.forEach { dim ->
-        val isSelected = selectedDimensionIndex == dim.index
-        val perceived = perceivedScores[dim.index] ?: 5
-        val real = (realScores[dim.index] ?: 0f).toInt()
+      // Chips interactivos de dimensiones con su puntaje real y percibido
+      FlowRow(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        dimensions.forEach { dim ->
+          val isSelected = selectedDimensionIndex == dim.index
+          val perceived = perceivedScores[dim.index] ?: 5
+          val real = (realScores[dim.index] ?: 0f).toInt()
 
-        Surface(
-          onClick = { onDimensionSelect(dim.index) },
-          shape = RoundedCornerShape(14.dp),
-          color = if (isSelected) AccentCharcoal else SurfaceCardLight,
-          border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (isSelected) AccentCharcoal else BorderLight
-          ),
-          modifier = Modifier.bouncyClick(scaleDown = 0.95f) {
-            onDimensionSelect(dim.index)
-          }
-        ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+          val dualChipInteraction = rememberBounceInteractionSource()
+          Surface(
+            onClick = { onDimensionSelect(dim.index) },
+            interactionSource = dualChipInteraction,
+            shape = RoundedCornerShape(14.dp),
+            color = if (isSelected) AccentCharcoal else SurfaceCardLight,
+            border = androidx.compose.foundation.BorderStroke(
+              1.dp,
+              if (isSelected) AccentCharcoal else BorderLight
+            ),
+            modifier = Modifier.bouncyScale(dualChipInteraction, scaleDown = 0.95f)
           ) {
-            Box(
-              modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(dim.accentColor)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-              text = dim.title,
-              style = MaterialTheme.typography.labelMedium,
-              color = if (isSelected) Color.White else TextPrimaryLight
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            if (hasRealData) {
-              Text(
-                text = "$real",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = if (isSelected) dim.accentColor else AccentCharcoal
+            Row(
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Box(
+                modifier = Modifier
+                  .size(8.dp)
+                  .clip(CircleShape)
+                  .background(dim.accentColor)
               )
+              Spacer(modifier = Modifier.width(6.dp))
               Text(
-                text = " / $perceived",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isSelected) Color.White.copy(alpha = 0.7f) else TextSecondaryLight
+                text = dim.title,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isSelected) Color.White else TextPrimaryLight
               )
-            } else {
-              Text(
-                text = "$perceived",
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = if (isSelected) dim.accentColor else TextSecondaryLight
-              )
+              Spacer(modifier = Modifier.width(6.dp))
+              if (hasRealData) {
+                Text(
+                  text = "$real",
+                  style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                  color = if (isSelected) dim.accentColor else AccentCharcoal
+                )
+                Text(
+                  text = " / $perceived",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = if (isSelected) Color.White.copy(alpha = 0.7f) else TextSecondaryLight
+                )
+              } else {
+                Text(
+                  text = "$perceived",
+                  style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                  color = if (isSelected) dim.accentColor else TextSecondaryLight
+                )
+              }
             }
           }
         }

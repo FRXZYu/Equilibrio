@@ -7,6 +7,9 @@ import com.example.model.AssessmentReport
 import com.example.model.GamificationStats
 import com.example.model.MissionRewardResult
 import com.example.model.UserProfile
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -14,6 +17,10 @@ import java.util.Locale
 
 class AssessmentRepository(context: Context) {
   private val prefs: SharedPreferences = context.getSharedPreferences("equilibrio_prefs", Context.MODE_PRIVATE)
+  private val _savedMissionIdsFlow = MutableStateFlow(
+    prefs.getStringSet(KEY_SAVED_MISSION_IDS, emptySet())?.toSet() ?: emptySet()
+  )
+  val savedMissionIdsFlow: StateFlow<Set<String>> = _savedMissionIdsFlow.asStateFlow()
 
   companion object {
     private const val KEY_IS_COMPLETED = "key_is_completed"
@@ -212,8 +219,7 @@ class AssessmentRepository(context: Context) {
   }
 
   fun toggleSaveMissionForLater(missionId: String): Boolean {
-    val stats = loadGamificationStats()
-    val savedIds = stats.savedMissionIds.toMutableSet()
+    val savedIds = (prefs.getStringSet(KEY_SAVED_MISSION_IDS, emptySet()) ?: emptySet()).toMutableSet()
     val isNowSaved = if (savedIds.contains(missionId)) {
       savedIds.remove(missionId)
       false
@@ -222,7 +228,16 @@ class AssessmentRepository(context: Context) {
       true
     }
     prefs.edit().putStringSet(KEY_SAVED_MISSION_IDS, savedIds).apply()
+    _savedMissionIdsFlow.value = savedIds.toSet()
     return isNowSaved
+  }
+
+  fun removeSavedMission(missionId: String) {
+    val savedIds = (prefs.getStringSet(KEY_SAVED_MISSION_IDS, emptySet()) ?: emptySet()).toMutableSet()
+    if (savedIds.remove(missionId)) {
+      prefs.edit().putStringSet(KEY_SAVED_MISSION_IDS, savedIds).apply()
+      _savedMissionIdsFlow.value = savedIds.toSet()
+    }
   }
 
   // ==========================================

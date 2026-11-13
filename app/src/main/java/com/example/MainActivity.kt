@@ -124,8 +124,7 @@ fun EquilibrioApp(viewModel: MainViewModel) {
 
       is AppScreenState.NameInput -> {
         BackHandler {
-          // Allow going back to report
-          viewModel.onTransitionComplete(emptyMap())
+          viewModel.openSavedReport()
         }
 
         NameInputScreen(
@@ -137,6 +136,10 @@ fun EquilibrioApp(viewModel: MainViewModel) {
       }
 
       is AppScreenState.ProfilePhoto -> {
+        BackHandler {
+          viewModel.backToNameInput()
+        }
+
         ProfilePhotoScreen(
           currentPhotoUri = state.photoUri,
           onPhotoSelected = { uri ->
@@ -149,6 +152,10 @@ fun EquilibrioApp(viewModel: MainViewModel) {
       }
 
       is AppScreenState.ZodiacAndGoal -> {
+        BackHandler {
+          viewModel.backToProfilePhoto()
+        }
+
         ZodiacAndGoalScreen(
           initialZodiac = state.zodiacSign,
           initialGoal = state.monthlyGoal,

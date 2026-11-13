@@ -148,4 +148,32 @@ class RoomRepositoryTest {
     val trasBorrar = repository.customMissions.first()
     assertTrue(trasBorrar.isEmpty())
   }
+
+  @Test
+  fun testTopeDiarioExp150YGuardadoReactivo() = runBlocking {
+    val date = "2026-11-12"
+
+    // Guardar misión para más tarde y verificar flujo reactivo
+    val saved = repository.toggleSaveMissionForLater("desc_1")
+    assertTrue(saved)
+    assertTrue(repository.savedMissionIds.first().contains("desc_1"))
+
+    // Completar misiones hasta alcanzar y superar el tope de 150 EXP
+    repository.toggleMissionCompletion("m1", 0, 60, date)
+    repository.toggleMissionCompletion("m2", 1, 60, date)
+    repository.toggleMissionCompletion("m3", 2, 60, date) // Solo debe otorgar 30 EXP restantes
+
+    val m3Record = database.completionDao().findCompletion("m3", date)
+    assertNotNull(m3Record)
+    assertEquals(30, m3Record?.expAwarded)
+
+    // Una cuarta misión ya con tope completo registra 0 EXP pero sigue contando como completada
+    repository.toggleMissionCompletion("desc_1", 2, 40, date)
+    val desc1Record = database.completionDao().findCompletion("desc_1", date)
+    assertNotNull(desc1Record)
+    assertEquals(0, desc1Record?.expAwarded)
+
+    // Al completarla se elimina automáticamente de guardadas
+    assertTrue(!repository.savedMissionIds.first().contains("desc_1"))
+  }
 }

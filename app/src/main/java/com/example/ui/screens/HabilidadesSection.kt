@@ -3,22 +3,27 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,58 +44,48 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Celebration
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.Hexagon
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Spa
-import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.domain.HexagonCalculator
 import com.example.model.AssessmentReport
 import com.example.model.BalanceMission
 import com.example.model.DimensionDiagnostic
 import com.example.model.DimensionsProvider
 import com.example.model.LifeDimension
-import com.example.model.ScoreTier
 import com.example.ui.components.DualLayerHexagonRadarChart
-import com.example.ui.components.bouncyClick
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.SurfaceCardLight
@@ -98,17 +93,34 @@ import com.example.ui.theme.SurfaceVariantLight
 import com.example.ui.theme.TextPrimaryLight
 import com.example.ui.theme.TextSecondaryLight
 
+private val CompletedGrayContainer = Color(0xFFE5E7EB)
+private val CompletedGrayContent = Color(0xFF4B5563)
+private val CompletedGrayCardBg = Color(0xFFF3F4F6)
+
 enum class HabilidadesFilterTab(val label: String, val icon: ImageVector) {
   RESUMEN("Resumen", Icons.Outlined.BarChart),
   FORTALEZAS("Fortalezas", Icons.Outlined.FitnessCenter),
-  CRECIMIENTO("Espacios de Crecimiento", Icons.Outlined.Spa),
-  NUEVOS_RETOS("Nuevos Retos", Icons.Outlined.AutoAwesome)
+  CRECIMIENTO("Crecimiento", Icons.Outlined.Spa),
+  NUEVOS_RETOS("Retos", Icons.Outlined.AutoAwesome)
 }
 
 /**
- * Pestaña interactiva de "Habilidades" (Tab 1) totalmente independiente del informe inicial.
- * Proporciona un resumen dinámico con navegación por pestañas/botones, tarjetas interactivas expandibles,
- * diferenciación clara entre fortalezas y áreas en crecimiento, y acciones directas para mejorar.
+ * Puntaje efectivo unificado entre todas las pestañas para evitar inconsistencias:
+ * si el puntaje real (últimos 14 días) alcanza 7+ se consolida como fortaleza;
+ * mientras tanto usa el puntaje inicial percibido hasta superarlo.
+ */
+private fun effectiveSkillScore(perceivedScore: Int, realScore: Int): Int {
+  return if (realScore >= 7) realScore else perceivedScore
+}
+
+private fun isSkillStrength(perceivedScore: Int, realScore: Int): Boolean {
+  return effectiveSkillScore(perceivedScore, realScore) >= 7
+}
+
+/**
+ * Centro de Habilidades rediseñado con Material Design 3, animaciones spring,
+ * sincronización total con Room y el hexágono dinámico de dos capas, y estado
+ * completado en gris para todas las misiones.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -116,9 +128,12 @@ fun HabilidadesSection(
   report: AssessmentReport,
   realScores: Map<Int, Int>,
   realScoresFloat: Map<Int, Float>,
+  expByDimension14d: Map<Int, Int>,
+  liveHarmonyPercentage: Int,
   allMissions: List<BalanceMission>,
   onLaunchMission: (BalanceMission) -> Unit,
   onOpenCreateMission: () -> Unit,
+  onOpenFullReport: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   var activeTab by remember { mutableStateOf(HabilidadesFilterTab.RESUMEN) }
@@ -126,13 +141,27 @@ fun HabilidadesSection(
   val haptic = LocalHapticFeedback.current
   val scrollState = rememberScrollState()
 
+  val animatedHarmony by animateIntAsState(
+    targetValue = liveHarmonyPercentage,
+    animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing),
+    label = "harmony_counter"
+  )
+
+  val strengthsCount = remember(report, realScores) {
+    report.diagnostics.count { diag ->
+      val real = realScores[diag.dimension.index] ?: 0
+      isSkillStrength(diag.score, real)
+    }
+  }
+  val growthCount = 6 - strengthsCount
+
   Column(
     modifier = modifier
       .fillMaxSize()
       .verticalScroll(scrollState)
       .padding(horizontal = 20.dp, vertical = 14.dp)
   ) {
-    // 1. Encabezado principal del Centro de Habilidades
+    // 1. Encabezado principal sincronizado con el progreso real del panel
     Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.SpaceBetween,
@@ -143,30 +172,39 @@ fun HabilidadesSection(
           text = "Centro de Habilidades",
           style = MaterialTheme.typography.displaySmall.copy(
             fontWeight = FontWeight.Bold,
-            fontSize = 28.sp
+            fontSize = 26.sp
           ),
           color = TextPrimaryLight
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
-          text = "Tu mapa interactivo de capacidades y crecimiento",
+          text = "Sincronizado en tiempo real con tu hexágono",
           style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
           color = TextSecondaryLight
         )
       }
 
-      // Badge de Armonía de Vida
+      val harmonyInteraction = rememberBounceInteractionSource()
       Surface(
+        onClick = {
+          haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+          onOpenFullReport()
+        },
+        interactionSource = harmonyInteraction,
         shape = RoundedCornerShape(16.dp),
         color = SurfaceCardLight,
-        border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight)
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
+        shadowElevation = 1.dp,
+        modifier = Modifier
+          .bouncyScale(harmonyInteraction, scaleDown = 0.93f)
+          .testTag("btn_skills_harmony_report")
       ) {
         Column(
-          modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+          modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
           horizontalAlignment = Alignment.CenterHorizontally
         ) {
           Text(
-            text = "${report.harmonyPercentage}%",
+            text = "$animatedHarmony%",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
             color = AccentCharcoal
           )
@@ -181,71 +219,86 @@ fun HabilidadesSection(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // 2. Selector de pestañas interactivas con botones redondeados
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .clip(RoundedCornerShape(20.dp))
-        .background(SurfaceVariantLight)
-        .padding(4.dp),
-      horizontalArrangement = Arrangement.spacedBy(4.dp)
+    // 2. Barra segmentada Material 3 con rebote táctil y transición animada
+    Surface(
+      shape = RoundedCornerShape(20.dp),
+      color = SurfaceVariantLight,
+      modifier = Modifier.fillMaxWidth()
     ) {
-      HabilidadesFilterTab.values().forEach { tab ->
-        val isSelected = activeTab == tab
-        val bgColor by animateColorAsState(
-          targetValue = if (isSelected) AccentCharcoal else Color.Transparent,
-          animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-          label = "tab_bg_${tab.name}"
-        )
-        val textColor by animateColorAsState(
-          targetValue = if (isSelected) Color.White else TextSecondaryLight,
-          label = "tab_text_${tab.name}"
-        )
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+      ) {
+        HabilidadesFilterTab.entries.forEach { tab ->
+          val isSelected = activeTab == tab
+          val tabInteraction = rememberBounceInteractionSource()
+          val bgColor by animateColorAsState(
+            targetValue = if (isSelected) AccentCharcoal else Color.Transparent,
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            label = "tab_bg_${tab.name}"
+          )
+          val textColor by animateColorAsState(
+            targetValue = if (isSelected) Color.White else TextSecondaryLight,
+            label = "tab_text_${tab.name}"
+          )
 
-        Box(
-          modifier = Modifier
-            .weight(1f)
-            .clip(RoundedCornerShape(16.dp))
-            .background(bgColor)
-            .clickable {
+          Surface(
+            onClick = {
+              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
               activeTab = tab
               expandedDimensionIndex = null
+            },
+            interactionSource = tabInteraction,
+            shape = RoundedCornerShape(16.dp),
+            color = bgColor,
+            modifier = Modifier
+              .weight(1f)
+              .bouncyScale(tabInteraction, scaleDown = 0.93f)
+              .testTag("skills_tab_${tab.name.lowercase()}")
+          ) {
+            Row(
+              modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.Center
+            ) {
+              Icon(
+                imageVector = tab.icon,
+                contentDescription = tab.label,
+                tint = textColor,
+                modifier = Modifier.size(15.dp)
+              )
+              Spacer(modifier = Modifier.width(4.dp))
+              Text(
+                text = tab.label,
+                style = MaterialTheme.typography.labelSmall.copy(
+                  fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                  fontSize = 11.5.sp
+                ),
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+              )
             }
-            .padding(vertical = 10.dp),
-          contentAlignment = Alignment.Center
-        ) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-              imageVector = tab.icon,
-              contentDescription = null,
-              tint = textColor,
-              modifier = Modifier.size(15.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-              text = tab.label,
-              style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                fontSize = 11.5.sp
-              ),
-              color = textColor,
-              maxLines = 1
-            )
           }
         }
       }
     }
 
-    Spacer(modifier = Modifier.height(20.dp))
+    Spacer(modifier = Modifier.height(18.dp))
 
     // 3. Contenido animado según la pestaña activa
     AnimatedContent(
       targetState = activeTab,
       transitionSpec = {
-        (fadeIn() + slideInHorizontally { width -> width / 4 }) togetherWith
-            (fadeOut() + slideOutHorizontally { width -> -width / 4 })
+        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+        (fadeIn(tween(220)) + slideInHorizontally(
+          animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+        ) { width -> direction * (width / 5) }) togetherWith
+            (fadeOut(tween(160)) + slideOutHorizontally { width -> -direction * (width / 5) })
       },
-      label = "tab_content_transition"
+      label = "skills_tab_content"
     ) { currentTab ->
       when (currentTab) {
         HabilidadesFilterTab.RESUMEN -> {
@@ -253,12 +306,21 @@ fun HabilidadesSection(
             report = report,
             realScores = realScores,
             realScoresFloat = realScoresFloat,
+            expByDimension14d = expByDimension14d,
+            strengthsCount = strengthsCount,
+            growthCount = growthCount,
             allMissions = allMissions,
             expandedDimensionIndex = expandedDimensionIndex,
             onToggleExpand = { dimIdx ->
+              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
               expandedDimensionIndex = if (expandedDimensionIndex == dimIdx) null else dimIdx
             },
-            onLaunchMission = onLaunchMission
+            onNavigateToTab = { targetTab ->
+              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+              activeTab = targetTab
+            },
+            onLaunchMission = onLaunchMission,
+            onOpenFullReport = onOpenFullReport
           )
         }
 
@@ -266,6 +328,7 @@ fun HabilidadesSection(
           FortalezasTab(
             report = report,
             realScores = realScores,
+            expByDimension14d = expByDimension14d,
             allMissions = allMissions,
             onLaunchMission = onLaunchMission
           )
@@ -275,15 +338,14 @@ fun HabilidadesSection(
           EspaciosCrecimientoTab(
             report = report,
             realScores = realScores,
+            expByDimension14d = expByDimension14d,
             allMissions = allMissions,
-            onLaunchMission = onLaunchMission,
-            onOpenCreateMission = onOpenCreateMission
+            onLaunchMission = onLaunchMission
           )
         }
 
         HabilidadesFilterTab.NUEVOS_RETOS -> {
           NuevosRetosTab(
-            report = report,
             allMissions = allMissions,
             onLaunchMission = onLaunchMission,
             onOpenCreateMission = onOpenCreateMission
@@ -292,26 +354,33 @@ fun HabilidadesSection(
       }
     }
 
-    Spacer(modifier = Modifier.height(100.dp))
+    Spacer(modifier = Modifier.height(104.dp))
   }
 }
 
 /**
- * Pestaña 1: Resumen General interactivo con Hexágono de 2 capas y tarjetas expandibles de las 6 dimensiones.
+ * Pestaña 1: Mapa Hexagonal dinámico + métricas sincronizadas + explorador expandible de las 6 dimensiones.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ResumenHabilidadesTab(
   report: AssessmentReport,
   realScores: Map<Int, Int>,
   realScoresFloat: Map<Int, Float>,
+  expByDimension14d: Map<Int, Int>,
+  strengthsCount: Int,
+  growthCount: Int,
   allMissions: List<BalanceMission>,
   expandedDimensionIndex: Int?,
   onToggleExpand: (Int) -> Unit,
-  onLaunchMission: (BalanceMission) -> Unit
+  onNavigateToTab: (HabilidadesFilterTab) -> Unit,
+  onLaunchMission: (BalanceMission) -> Unit,
+  onOpenFullReport: () -> Unit
 ) {
+  val totalExp14d = expByDimension14d.values.sum()
+  val completedTodayCount = allMissions.count { it.isCompleted }
+
   Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-    // Tarjeta del Hexágono Comparativo
+    // Hexágono dinámico de 2 capas
     Surface(
       shape = RoundedCornerShape(24.dp),
       color = SurfaceCardLight,
@@ -330,16 +399,49 @@ private fun ResumenHabilidadesTab(
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically
         ) {
-          Text(
-            text = "Mapa de 6 Habilidades",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = TextPrimaryLight
-          )
-          Text(
-            text = "Toca para explorar",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondaryLight
-          )
+          Column {
+            Text(
+              text = "Mapa Dinámico (14 días)",
+              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+              color = TextPrimaryLight
+            )
+            Text(
+              text = if (totalExp14d > 0) {
+                "$totalExp14d EXP sumados al hexágono • $completedTodayCount hechas hoy"
+              } else {
+                "Toca un vértice para inspeccionar y sumar EXP"
+              },
+              style = MaterialTheme.typography.labelSmall,
+              color = TextSecondaryLight
+            )
+          }
+
+          val reportBtnInteraction = rememberBounceInteractionSource()
+          Surface(
+            onClick = onOpenFullReport,
+            interactionSource = reportBtnInteraction,
+            shape = RoundedCornerShape(12.dp),
+            color = SurfaceVariantLight,
+            modifier = Modifier.bouncyScale(reportBtnInteraction, scaleDown = 0.92f)
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Icon(
+                imageVector = Icons.Outlined.Hexagon,
+                contentDescription = null,
+                tint = AccentCharcoal,
+                modifier = Modifier.size(14.dp)
+              )
+              Spacer(modifier = Modifier.width(4.dp))
+              Text(
+                text = "Informe",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = AccentCharcoal
+              )
+            }
+          }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -353,17 +455,21 @@ private fun ResumenHabilidadesTab(
       }
     }
 
-    // Tarjeta de métricas rápidas (Fortalezas vs Crecimiento)
+    // Tarjetas rápidas sincronizadas (tocarlas navega directamente a Fortalezas / Crecimiento)
     Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-      // Fortalezas Count Card
+      val strengthsCardInteraction = rememberBounceInteractionSource()
       Surface(
+        onClick = { onNavigateToTab(HabilidadesFilterTab.FORTALEZAS) },
+        interactionSource = strengthsCardInteraction,
         shape = RoundedCornerShape(20.dp),
         color = Color(0xFFF0FDF4),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0)),
-        modifier = Modifier.weight(1f)
+        modifier = Modifier
+          .weight(1f)
+          .bouncyScale(strengthsCardInteraction, scaleDown = 0.94f)
       ) {
         Row(
           modifier = Modifier.padding(14.dp),
@@ -373,17 +479,17 @@ private fun ResumenHabilidadesTab(
             imageVector = Icons.Outlined.FitnessCenter,
             contentDescription = null,
             tint = Color(0xFF15803D),
-            modifier = Modifier.size(24.dp)
+            modifier = Modifier.size(22.dp)
           )
           Spacer(modifier = Modifier.width(10.dp))
           Column {
             Text(
-              text = "${report.diagnostics.count { (realScores[it.dimension.index] ?: it.score) >= 7 }} Fortalezas",
+              text = "$strengthsCount Fortalezas",
               style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
               color = Color(0xFF15803D)
             )
             Text(
-              text = "Puntos consolidados",
+              text = "Puntos sólidos",
               style = MaterialTheme.typography.labelSmall,
               color = Color(0xFF166534)
             )
@@ -391,12 +497,16 @@ private fun ResumenHabilidadesTab(
         }
       }
 
-      // Crecimiento Count Card
+      val growthCardInteraction = rememberBounceInteractionSource()
       Surface(
+        onClick = { onNavigateToTab(HabilidadesFilterTab.CRECIMIENTO) },
+        interactionSource = growthCardInteraction,
         shape = RoundedCornerShape(20.dp),
         color = Color(0xFFFFFBEB),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFDE68A)),
-        modifier = Modifier.weight(1f)
+        modifier = Modifier
+          .weight(1f)
+          .bouncyScale(growthCardInteraction, scaleDown = 0.94f)
       ) {
         Row(
           modifier = Modifier.padding(14.dp),
@@ -406,12 +516,12 @@ private fun ResumenHabilidadesTab(
             imageVector = Icons.Outlined.Spa,
             contentDescription = null,
             tint = Color(0xFFB45309),
-            modifier = Modifier.size(24.dp)
+            modifier = Modifier.size(22.dp)
           )
           Spacer(modifier = Modifier.width(10.dp))
           Column {
             Text(
-              text = "${report.diagnostics.count { (realScores[it.dimension.index] ?: it.score) <= 6 }} En Crecimiento",
+              text = "$growthCount En Crecimiento",
               style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
               color = Color(0xFFB45309)
             )
@@ -431,23 +541,26 @@ private fun ResumenHabilidadesTab(
       color = TextPrimaryLight
     )
 
-    // Lista interactiva expandible de las 6 dimensiones
+    // 6 tarjetas interactivas expandibles sincronizadas con Room
     DimensionsProvider.dimensions.forEach { dim ->
       val diag = report.diagnostics.find { it.dimension.index == dim.index }
       val isExpanded = expandedDimensionIndex == dim.index
       val perceived = report.scores[dim.index] ?: 5
       val real = realScores[dim.index] ?: 0
-      val isStrong = (if (real > 0) real else perceived) >= 7
+      val exp14d = expByDimension14d[dim.index] ?: 0
+      val isStrong = isSkillStrength(perceived, real)
+      val dimMissions = allMissions.filter { it.dimensionIndex == dim.index }
 
       InteractiveSkillCard(
         dimension = dim,
         diagnostic = diag,
         perceivedScore = perceived,
         realScore = real,
+        exp14d = exp14d,
         isStrong = isStrong,
         isExpanded = isExpanded,
         onToggle = { onToggleExpand(dim.index) },
-        allMissions = allMissions,
+        dimensionMissions = dimMissions,
         onLaunchMission = onLaunchMission
       )
     }
@@ -455,20 +568,20 @@ private fun ResumenHabilidadesTab(
 }
 
 /**
- * Pestaña 2: Partes Fortalecidas (Dimensiones con puntuación sólida o excepcional)
+ * Pestaña 2: Fortalezas (con progreso real, misiones sincronizadas y estado completado en gris).
  */
 @Composable
 private fun FortalezasTab(
   report: AssessmentReport,
   realScores: Map<Int, Int>,
+  expByDimension14d: Map<Int, Int>,
   allMissions: List<BalanceMission>,
   onLaunchMission: (BalanceMission) -> Unit
 ) {
   val strongDiagnostics = remember(report, realScores) {
     report.diagnostics.filter { diag ->
       val real = realScores[diag.dimension.index] ?: 0
-      val effectiveScore = if (real > 0) real else diag.score
-      effectiveScore >= 7
+      isSkillStrength(diag.score, real)
     }
   }
 
@@ -487,7 +600,7 @@ private fun FortalezasTab(
           imageVector = Icons.Default.Star,
           contentDescription = null,
           tint = Color(0xFF16A34A),
-          modifier = Modifier.size(28.dp)
+          modifier = Modifier.size(26.dp)
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column {
@@ -497,7 +610,7 @@ private fun FortalezasTab(
             color = Color(0xFF15803D)
           )
           Text(
-            text = "Estas son las áreas donde demuestras consistencia y energía positiva. Mantén el ritmo sin sobrecargarte.",
+            text = "Cada misión completada suma puntos reales al hexágono y mantiene estas áreas fuertes.",
             style = MaterialTheme.typography.bodySmall,
             color = Color(0xFF166534),
             lineHeight = 18.sp
@@ -520,7 +633,7 @@ private fun FortalezasTab(
             imageVector = Icons.Outlined.Spa,
             contentDescription = null,
             tint = TextSecondaryLight,
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(34.dp)
           )
           Spacer(modifier = Modifier.height(8.dp))
           Text(
@@ -529,7 +642,7 @@ private fun FortalezasTab(
             color = TextPrimaryLight
           )
           Text(
-            text = "Completa tus misiones diarias para consolidar tus primeras dimensiones sobre 7 puntos.",
+            text = "Completa misiones diarias en Espacios de Crecimiento para consolidar dimensiones sobre 7 puntos.",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondaryLight,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -540,7 +653,9 @@ private fun FortalezasTab(
       strongDiagnostics.forEach { diag ->
         val dim = diag.dimension
         val real = realScores[dim.index] ?: 0
-        val effectiveScore = if (real > 0) real else diag.score
+        val exp14d = expByDimension14d[dim.index] ?: 0
+        val effective = effectiveSkillScore(diag.score, real)
+        val dimMissions = allMissions.filter { it.dimensionIndex == dim.index }
 
         Surface(
           shape = RoundedCornerShape(22.dp),
@@ -586,13 +701,20 @@ private fun FortalezasTab(
                   )
                   Spacer(modifier = Modifier.width(4.dp))
                   Text(
-                    text = "$effectiveScore / 10",
+                    text = if (real > 0) "Real $real/10 • Inicial ${diag.score}" else "$effective / 10",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     color = Color(0xFF15803D)
                   )
                 }
               }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            DimensionExpProgressBar(
+              exp14d = exp14d,
+              accentColor = dim.accentColor
+            )
 
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -611,29 +733,17 @@ private fun FortalezasTab(
               lineHeight = 19.sp
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Misión sugerida para mantener la fortaleza
-            val relatedMission = allMissions.firstOrNull { it.dimensionIndex == dim.index }
-            if (relatedMission != null) {
-              Button(
-                onClick = { onLaunchMission(relatedMission) },
-                colors = ButtonDefaults.buttonColors(containerColor = dim.accentColor),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                Icon(
-                  imageVector = Icons.Default.ElectricBolt,
-                  contentDescription = null,
-                  tint = Color.White,
-                  modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                  text = "Mantener fortaleza: ${relatedMission.title}",
-                  color = Color.White,
-                  style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
+            if (dimMissions.isNotEmpty()) {
+              Spacer(modifier = Modifier.height(14.dp))
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                dimMissions.forEach { mission ->
+                  SyncedSkillMissionActionButton(
+                    mission = mission,
+                    activeColor = dim.accentColor,
+                    actionPrefix = "Mantener",
+                    onClick = { onLaunchMission(mission) }
+                  )
+                }
               }
             }
           }
@@ -644,22 +754,24 @@ private fun FortalezasTab(
 }
 
 /**
- * Pestaña 3: Espacios de Crecimiento (Dimensiones que requieren impulso y atención sin culpa)
+ * Pestaña 3: Espacios de Crecimiento (prioriza las áreas con mayor oportunidad y suma al hexágono).
  */
 @Composable
 private fun EspaciosCrecimientoTab(
   report: AssessmentReport,
   realScores: Map<Int, Int>,
+  expByDimension14d: Map<Int, Int>,
   allMissions: List<BalanceMission>,
-  onLaunchMission: (BalanceMission) -> Unit,
-  onOpenCreateMission: () -> Unit
+  onLaunchMission: (BalanceMission) -> Unit
 ) {
   val growthDiagnostics = remember(report, realScores) {
     report.diagnostics.filter { diag ->
       val real = realScores[diag.dimension.index] ?: 0
-      val effectiveScore = if (real > 0) real else diag.score
-      effectiveScore <= 6
-    }.sortedBy { realScores[it.dimension.index] ?: it.score }
+      !isSkillStrength(diag.score, real)
+    }.sortedBy { diag ->
+      val real = realScores[diag.dimension.index] ?: 0
+      if (real > 0) real else diag.score
+    }
   }
 
   Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -677,7 +789,7 @@ private fun EspaciosCrecimientoTab(
           imageVector = Icons.Outlined.Lightbulb,
           contentDescription = null,
           tint = Color(0xFFB45309),
-          modifier = Modifier.size(28.dp)
+          modifier = Modifier.size(26.dp)
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column {
@@ -687,7 +799,7 @@ private fun EspaciosCrecimientoTab(
             color = Color(0xFF92400E)
           )
           Text(
-            text = "Aquí es donde una pequeña acción de 10 o 15 minutos genera el mayor impacto en tu bienestar.",
+            text = "Otorgan 1.5x EXP. Al superar 7/10 en acciones reales se convierten en fortalezas.",
             style = MaterialTheme.typography.bodySmall,
             color = Color(0xFF78350F),
             lineHeight = 18.sp
@@ -700,6 +812,7 @@ private fun EspaciosCrecimientoTab(
       Surface(
         shape = RoundedCornerShape(20.dp),
         color = Color(0xFFF0FDF4),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0)),
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(
@@ -714,7 +827,7 @@ private fun EspaciosCrecimientoTab(
           )
           Spacer(modifier = Modifier.height(8.dp))
           Text(
-            text = "¡Excelente equilibrio alcanzado!",
+            text = "¡Equilibrio integral alcanzado!",
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
             color = Color(0xFF15803D)
           )
@@ -730,9 +843,8 @@ private fun EspaciosCrecimientoTab(
       growthDiagnostics.forEach { diag ->
         val dim = diag.dimension
         val real = realScores[dim.index] ?: 0
-        val effectiveScore = if (real > 0) real else diag.score
-        val relatedMission = allMissions.firstOrNull { it.dimensionIndex == dim.index && !it.isCompleted }
-          ?: allMissions.firstOrNull { it.dimensionIndex == dim.index }
+        val exp14d = expByDimension14d[dim.index] ?: 0
+        val dimMissions = allMissions.filter { it.dimensionIndex == dim.index }
 
         Surface(
           shape = RoundedCornerShape(22.dp),
@@ -778,13 +890,20 @@ private fun EspaciosCrecimientoTab(
                   )
                   Spacer(modifier = Modifier.width(4.dp))
                   Text(
-                    text = "1.5x EXP  •  $effectiveScore / 10",
+                    text = "1.5x EXP • ${if (real > 0) "Real $real" else diag.score}/10",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                     color = Color(0xFFB45309)
                   )
                 }
               }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            DimensionExpProgressBar(
+              exp14d = exp14d,
+              accentColor = dim.accentColor
+            )
 
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -805,7 +924,6 @@ private fun EspaciosCrecimientoTab(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Acción clave
             Surface(
               shape = RoundedCornerShape(14.dp),
               color = SurfaceVariantLight
@@ -822,7 +940,8 @@ private fun EspaciosCrecimientoTab(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                  text = diag.actionableImprovements.firstOrNull() ?: "Dedica 10 min a avanzar sin presiones.",
+                  text = diag.actionableImprovements.firstOrNull()
+                    ?: "Dedica 10 min a avanzar sin presiones.",
                   style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                   color = TextPrimaryLight,
                   lineHeight = 18.sp
@@ -830,27 +949,17 @@ private fun EspaciosCrecimientoTab(
               }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            if (relatedMission != null) {
-              Button(
-                onClick = { onLaunchMission(relatedMission) },
-                colors = ButtonDefaults.buttonColors(containerColor = dim.accentColor),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-              ) {
-                Icon(
-                  imageVector = Icons.Default.ElectricBolt,
-                  contentDescription = null,
-                  tint = Color.White,
-                  modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                  text = "Impulsar ahora: ${relatedMission.title}",
-                  color = Color.White,
-                  style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
+            if (dimMissions.isNotEmpty()) {
+              Spacer(modifier = Modifier.height(14.dp))
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                dimMissions.forEach { mission ->
+                  SyncedSkillMissionActionButton(
+                    mission = mission,
+                    activeColor = dim.accentColor,
+                    actionPrefix = "Impulsar",
+                    onClick = { onLaunchMission(mission) }
+                  )
+                }
               }
             }
           }
@@ -861,20 +970,20 @@ private fun EspaciosCrecimientoTab(
 }
 
 /**
- * Pestaña 4: Nuevos Retos y Desafíos
+ * Pestaña 4: Nuevos Retos y Misiones Personalizadas (100% sincronizada con completados en gris).
  */
 @Composable
 private fun NuevosRetosTab(
-  report: AssessmentReport,
   allMissions: List<BalanceMission>,
   onLaunchMission: (BalanceMission) -> Unit,
   onOpenCreateMission: () -> Unit
 ) {
-  val customMissions = allMissions.filter { it.isCustom }
-  val suggestedMissions = allMissions.filter { !it.isCompleted }
+  val customMissions = remember(allMissions) { allMissions.filter { it.isCustom } }
+  val featuredChallenges = remember(allMissions) {
+    allMissions.filter { !it.isCustom }.sortedBy { it.isCompleted }.take(6)
+  }
 
   Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-    // Tarjeta de invitación a crear reto personalizado
     Surface(
       shape = RoundedCornerShape(22.dp),
       color = AccentCharcoal,
@@ -900,7 +1009,7 @@ private fun NuevosRetosTab(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-          text = "Crea misiones personalizadas adaptadas a tus metas específicas con frecuencia diaria, semanal o como hábito recurrente.",
+          text = "Crea misiones y hábitos a medida para sumar puntos directamente al hexágono dinámico.",
           style = MaterialTheme.typography.bodySmall,
           color = Color.White.copy(alpha = 0.85f),
           lineHeight = 19.sp
@@ -908,11 +1017,15 @@ private fun NuevosRetosTab(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        val createBtnInteraction = rememberBounceInteractionSource()
         Button(
           onClick = onOpenCreateMission,
+          interactionSource = createBtnInteraction,
           colors = ButtonDefaults.buttonColors(containerColor = Color.White),
           shape = RoundedCornerShape(14.dp),
-          modifier = Modifier.fillMaxWidth()
+          modifier = Modifier
+            .fillMaxWidth()
+            .bouncyScale(createBtnInteraction)
         ) {
           Icon(
             imageVector = Icons.Default.Add,
@@ -930,56 +1043,133 @@ private fun NuevosRetosTab(
       }
     }
 
+    if (customMissions.isNotEmpty()) {
+      Text(
+        text = "Tus Misiones Creadas (${customMissions.size})",
+        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        color = TextPrimaryLight
+      )
+      customMissions.forEach { mission ->
+        RetoMissionCard(
+          mission = mission,
+          onLaunchMission = { onLaunchMission(mission) }
+        )
+      }
+    }
+
     Text(
-      text = "Nuevos Desafíos Disponibles",
+      text = "Desafíos para el Hexágono",
       style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
       color = TextPrimaryLight
     )
 
-    suggestedMissions.take(4).forEach { mission ->
-      val dim = DimensionsProvider.dimensions.getOrNull(mission.dimensionIndex)
-      val accentColor = dim?.accentColor ?: AccentCharcoal
+    featuredChallenges.forEach { mission ->
+      RetoMissionCard(
+        mission = mission,
+        onLaunchMission = { onLaunchMission(mission) }
+      )
+    }
+  }
+}
 
-      Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = SurfaceCardLight,
-        border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        Row(
-          modifier = Modifier.padding(16.dp),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Column(modifier = Modifier.weight(1f)) {
+@Composable
+private fun RetoMissionCard(
+  mission: BalanceMission,
+  onLaunchMission: () -> Unit
+) {
+  val dim = DimensionsProvider.dimensions.getOrNull(mission.dimensionIndex)
+  val accentColor = dim?.accentColor ?: AccentCharcoal
+  val cardInteraction = rememberBounceInteractionSource()
+  val btnInteraction = rememberBounceInteractionSource()
+
+  val cardBg by animateColorAsState(
+    targetValue = if (mission.isCompleted) CompletedGrayCardBg else SurfaceCardLight,
+    label = "reto_card_bg_${mission.id}"
+  )
+  val buttonBg by animateColorAsState(
+    targetValue = if (mission.isCompleted) CompletedGrayContainer else accentColor,
+    label = "reto_btn_bg_${mission.id}"
+  )
+  val buttonContent by animateColorAsState(
+    targetValue = if (mission.isCompleted) CompletedGrayContent else Color.White,
+    label = "reto_btn_fg_${mission.id}"
+  )
+
+  Surface(
+    onClick = onLaunchMission,
+    interactionSource = cardInteraction,
+    shape = RoundedCornerShape(18.dp),
+    color = cardBg,
+    border = androidx.compose.foundation.BorderStroke(
+      1.dp,
+      if (mission.isCompleted) CompletedGrayContainer else BorderLight
+    ),
+    modifier = Modifier
+      .fillMaxWidth()
+      .bouncyScale(cardInteraction, scaleDown = 0.97f)
+  ) {
+    Row(
+      modifier = Modifier.padding(16.dp),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+            text = mission.dimensionTitle.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = if (mission.isCompleted) CompletedGrayContent else accentColor
+          )
+          if (mission.isCompleted) {
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
-              text = mission.dimensionTitle.uppercase(),
+              text = "• Completada",
               style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-              color = accentColor
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-              text = mission.title,
-              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-              color = TextPrimaryLight
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-              text = mission.durationLabel + " • +" + mission.expReward + " EXP",
-              style = MaterialTheme.typography.labelSmall,
-              color = TextSecondaryLight
+              color = CompletedGrayContent
             )
           }
+        }
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+          text = mission.title,
+          style = MaterialTheme.typography.titleSmall.copy(
+            fontWeight = FontWeight.Bold,
+            textDecoration = if (mission.isCompleted) TextDecoration.LineThrough else TextDecoration.None
+          ),
+          color = if (mission.isCompleted) CompletedGrayContent else TextPrimaryLight
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+          text = "${mission.durationLabel} • +${mission.expReward} EXP",
+          style = MaterialTheme.typography.labelSmall,
+          color = TextSecondaryLight
+        )
+      }
 
-          Spacer(modifier = Modifier.width(10.dp))
+      Spacer(modifier = Modifier.width(10.dp))
 
-          Button(
-            onClick = { onLaunchMission(mission) },
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.White)
-          ) {
-            Text("Probar", fontWeight = FontWeight.Bold, color = Color.White)
-          }
+      Button(
+        onClick = onLaunchMission,
+        interactionSource = btnInteraction,
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+          containerColor = buttonBg,
+          contentColor = buttonContent
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.bouncyScale(btnInteraction, scaleDown = 0.92f)
+      ) {
+        if (mission.isCompleted) {
+          Icon(
+            imageVector = Icons.Filled.CheckCircle,
+            contentDescription = null,
+            tint = buttonContent,
+            modifier = Modifier.size(15.dp)
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("Hecha", fontWeight = FontWeight.Bold, color = buttonContent)
+        } else {
+          Text("Ver Detalles", fontWeight = FontWeight.Bold, color = buttonContent)
         }
       }
     }
@@ -987,7 +1177,129 @@ private fun NuevosRetosTab(
 }
 
 /**
- * Tarjeta interactiva expandible para una habilidad individual
+ * Barra animada de progreso real (últimos 14 días) que alimenta el vértice del hexágono.
+ */
+@Composable
+private fun DimensionExpProgressBar(
+  exp14d: Int,
+  accentColor: Color
+) {
+  val target = HexagonCalculator.DEFAULT_OBJETIVO_EXP
+  val progress by animateFloatAsState(
+    targetValue = (exp14d.toFloat() / target.toFloat()).coerceIn(0f, 1f),
+    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+    label = "dim_exp_progress"
+  )
+
+  Column(modifier = Modifier.fillMaxWidth()) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Text(
+        text = "Progreso al hexágono (14 días)",
+        style = MaterialTheme.typography.labelSmall,
+        color = TextSecondaryLight
+      )
+      Text(
+        text = "$exp14d / $target EXP",
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+        color = accentColor
+      )
+    }
+    Spacer(modifier = Modifier.height(6.dp))
+    Box(
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(7.dp)
+        .clip(RoundedCornerShape(4.dp))
+        .background(SurfaceVariantLight)
+    ) {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth(progress)
+          .height(7.dp)
+          .clip(RoundedCornerShape(4.dp))
+          .background(accentColor)
+      )
+    }
+  }
+}
+
+/**
+ * Botón interactivo con animación de rebote para lanzar una misión a detalles y que se sincroniza
+ * en gris cuando la misión está completada.
+ */
+@Composable
+private fun SyncedSkillMissionActionButton(
+  mission: BalanceMission,
+  activeColor: Color,
+  actionPrefix: String,
+  onClick: () -> Unit
+) {
+  val interactionSource = rememberBounceInteractionSource()
+  val isCompleted = mission.isCompleted
+
+  val containerColor by animateColorAsState(
+    targetValue = if (isCompleted) CompletedGrayContainer else activeColor,
+    animationSpec = tween(250),
+    label = "skill_mission_btn_bg_${mission.id}"
+  )
+  val contentColor by animateColorAsState(
+    targetValue = if (isCompleted) CompletedGrayContent else Color.White,
+    animationSpec = tween(250),
+    label = "skill_mission_btn_fg_${mission.id}"
+  )
+
+  Button(
+    onClick = onClick,
+    interactionSource = interactionSource,
+    colors = ButtonDefaults.buttonColors(
+      containerColor = containerColor,
+      contentColor = contentColor
+    ),
+    shape = RoundedCornerShape(14.dp),
+    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+    modifier = Modifier
+      .fillMaxWidth()
+      .bouncyScale(interactionSource, scaleDown = 0.94f)
+      .testTag("btn_skill_mission_${mission.id}")
+  ) {
+    Icon(
+      imageVector = if (isCompleted) Icons.Filled.CheckCircle else Icons.Default.ElectricBolt,
+      contentDescription = null,
+      tint = contentColor,
+      modifier = Modifier.size(16.dp)
+    )
+    Spacer(modifier = Modifier.width(6.dp))
+    Text(
+      text = if (isCompleted) {
+        "Completada: ${mission.title}"
+      } else {
+        "$actionPrefix: ${mission.title}"
+      },
+      color = contentColor,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      style = MaterialTheme.typography.labelLarge.copy(
+        fontWeight = FontWeight.Bold,
+        textDecoration = if (isCompleted) TextDecoration.LineThrough else TextDecoration.None
+      ),
+      modifier = Modifier.weight(1f, fill = false)
+    )
+    Spacer(modifier = Modifier.width(6.dp))
+    Icon(
+      imageVector = if (isCompleted) Icons.Outlined.Info else Icons.AutoMirrored.Filled.ArrowForward,
+      contentDescription = null,
+      tint = contentColor,
+      modifier = Modifier.size(15.dp)
+    )
+  }
+}
+
+/**
+ * Tarjeta interactiva expandible para una habilidad individual en el Explorador.
  */
 @Composable
 private fun InteractiveSkillCard(
@@ -995,15 +1307,21 @@ private fun InteractiveSkillCard(
   diagnostic: DimensionDiagnostic?,
   perceivedScore: Int,
   realScore: Int,
+  exp14d: Int,
   isStrong: Boolean,
   isExpanded: Boolean,
   onToggle: () -> Unit,
-  allMissions: List<BalanceMission>,
+  dimensionMissions: List<BalanceMission>,
   onLaunchMission: (BalanceMission) -> Unit
 ) {
   val accentColor = dimension.accentColor
+  val cardInteraction = rememberBounceInteractionSource()
+  val effective = effectiveSkillScore(perceivedScore, realScore)
+  val completedInDim = dimensionMissions.count { it.isCompleted }
 
   Surface(
+    onClick = onToggle,
+    interactionSource = cardInteraction,
     shape = RoundedCornerShape(20.dp),
     color = SurfaceCardLight,
     border = androidx.compose.foundation.BorderStroke(
@@ -1013,7 +1331,14 @@ private fun InteractiveSkillCard(
     shadowElevation = if (isExpanded) 3.dp else 1.dp,
     modifier = Modifier
       .fillMaxWidth()
-      .bouncyClick(scaleDown = 0.98f) { onToggle() }
+      .bouncyScale(cardInteraction, scaleDown = 0.98f)
+      .animateContentSize(
+        animationSpec = spring(
+          dampingRatio = Spring.DampingRatioLowBouncy,
+          stiffness = Spring.StiffnessMediumLow
+        )
+      )
+      .testTag("skill_card_${dimension.index}")
   ) {
     Column(modifier = Modifier.padding(16.dp)) {
       Row(
@@ -1029,11 +1354,20 @@ private fun InteractiveSkillCard(
               .background(accentColor)
           )
           Spacer(modifier = Modifier.width(10.dp))
-          Text(
-            text = dimension.title,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = TextPrimaryLight
-          )
+          Column {
+            Text(
+              text = dimension.title,
+              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+              color = TextPrimaryLight
+            )
+            if (dimensionMissions.isNotEmpty()) {
+              Text(
+                text = "$completedInDim/${dimensionMissions.size} misiones hoy • $exp14d EXP",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondaryLight
+              )
+            }
+          }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1042,7 +1376,7 @@ private fun InteractiveSkillCard(
             color = if (isStrong) Color(0xFFDCFCE7) else Color(0xFFFEF3C7)
           ) {
             Text(
-              text = if (isStrong) "Fortaleza ($perceivedScore/10)" else "Crecimiento ($perceivedScore/10)",
+              text = if (isStrong) "Fortaleza ($effective/10)" else "Crecimiento ($effective/10)",
               style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
               color = if (isStrong) Color(0xFF15803D) else Color(0xFFB45309),
               modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -1059,8 +1393,11 @@ private fun InteractiveSkillCard(
         }
       }
 
-      // Detalle desplegable animado
-      AnimatedVisibility(visible = isExpanded) {
+      AnimatedVisibility(
+        visible = isExpanded,
+        enter = fadeIn(tween(200)) + expandVertically(),
+        exit = fadeOut(tween(150)) + shrinkVertically()
+      ) {
         Column(modifier = Modifier.padding(top = 14.dp)) {
           Box(
             modifier = Modifier
@@ -1071,7 +1408,6 @@ private fun InteractiveSkillCard(
 
           Spacer(modifier = Modifier.height(12.dp))
 
-          // Comparativa Percibido vs Real
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -1082,13 +1418,20 @@ private fun InteractiveSkillCard(
               color = TextSecondaryLight
             )
             Text(
-              text = "Real (14 días): ${if (realScore > 0) "$realScore / 10" else "Sin datos"}",
+              text = "Real (14 días): $realScore / 10",
               style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-              color = AccentCharcoal
+              color = if (realScore > 0) accentColor else TextSecondaryLight
             )
           }
 
           Spacer(modifier = Modifier.height(8.dp))
+
+          DimensionExpProgressBar(
+            exp14d = exp14d,
+            accentColor = accentColor
+          )
+
+          Spacer(modifier = Modifier.height(10.dp))
 
           if (diagnostic != null) {
             Text(
@@ -1107,28 +1450,17 @@ private fun InteractiveSkillCard(
             )
           }
 
-          Spacer(modifier = Modifier.height(14.dp))
-
-          val mission = allMissions.firstOrNull { it.dimensionIndex == dimension.index }
-          if (mission != null) {
-            Button(
-              onClick = { onLaunchMission(mission) },
-              colors = ButtonDefaults.buttonColors(containerColor = dimension.accentColor),
-              shape = RoundedCornerShape(12.dp),
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Icon(
-                imageVector = Icons.Default.ElectricBolt,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(16.dp)
-              )
-              Spacer(modifier = Modifier.width(6.dp))
-              Text(
-                text = "Realizar Misión de ${dimension.title}",
-                color = Color.White,
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-              )
+          if (dimensionMissions.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              dimensionMissions.forEach { mission ->
+                SyncedSkillMissionActionButton(
+                  mission = mission,
+                  activeColor = dimension.accentColor,
+                  actionPrefix = "Realizar Misión",
+                  onClick = { onLaunchMission(mission) }
+                )
+              }
             }
           }
         }

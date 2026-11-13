@@ -70,6 +70,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.model.BalanceMission
 import com.example.model.DimensionsProvider
 import com.example.ui.components.bouncyClick
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.SurfaceCardLight
@@ -522,6 +524,7 @@ fun CreateMissionDialog(
           Spacer(modifier = Modifier.height(16.dp))
 
           // Botón Crear Misión
+          val createBtnInteraction = rememberBounceInteractionSource()
           Button(
             onClick = {
               val finalTitle = title.trim().ifEmpty { "Misión de ${selectedDimension.title}" }
@@ -557,6 +560,7 @@ fun CreateMissionDialog(
               )
               onMissionCreated(newMission)
             },
+            interactionSource = createBtnInteraction,
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
               containerColor = AccentCharcoal,
@@ -565,6 +569,7 @@ fun CreateMissionDialog(
             modifier = Modifier
               .fillMaxWidth()
               .height(52.dp)
+              .bouncyScale(createBtnInteraction)
               .testTag("btn_submit_create_mission")
           ) {
             Icon(
@@ -814,8 +819,10 @@ fun CreateMissionDialog(
               Spacer(modifier = Modifier.height(20.dp))
 
               // Botón de Aceptar del Cartel
+              val saveHabitInteraction = rememberBounceInteractionSource()
               Button(
                 onClick = { showHabitCartel = false },
+                interactionSource = saveHabitInteraction,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                   containerColor = AccentCharcoal,
@@ -824,6 +831,7 @@ fun CreateMissionDialog(
                 modifier = Modifier
                   .fillMaxWidth()
                   .height(48.dp)
+                  .bouncyScale(saveHabitInteraction)
                   .testTag("btn_confirm_habit_cartel")
               ) {
                 Icon(

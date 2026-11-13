@@ -188,4 +188,44 @@ object HexagonCalculator {
     }
     return minDimension
   }
+
+  /**
+   * Calcula la EXP acumulada por cada dimensión (0..5) en los últimos 14 días.
+   */
+  fun calculateExpByDimension14d(
+    completions: List<CompletionRecord>,
+    dayKey: DayKey = DayKey.DEFAULT
+  ): Map<Int, Int> {
+    val validDays = dayKey.getRangeLastDays(14).toSet()
+    val expByDimension = (0..5).associateWith { 0 }.toMutableMap()
+    for (c in completions) {
+      if (c.date in validDays && c.dimensionIndex in 0..5) {
+        expByDimension[c.dimensionIndex] = (expByDimension[c.dimensionIndex] ?: 0) + c.expAwarded
+      }
+    }
+    return expByDimension
+  }
+
+  /**
+   * Calcula el porcentaje de armonía vivo combinando el estado real (si hay datos) y el percibido.
+   */
+  fun calculateLiveHarmonyPercentage(
+    realScores: Map<Int, Int>,
+    perceivedScores: Map<Int, Int>
+  ): Int {
+    val hasReal = realScores.values.any { it > 0 }
+    val effectiveScores = (0..5).map { idx ->
+      val perceived = perceivedScores[idx] ?: 5
+      val real = realScores[idx] ?: 0
+      if (!hasReal) {
+        perceived
+      } else if (real >= perceived) {
+        real
+      } else {
+        // Promedio ponderado suave para que completar misiones sume visiblemente sin desplomar el puntaje inicial
+        ((perceived * 0.65f) + (real * 0.35f)).toInt().coerceIn(1, 10)
+      }
+    }
+    return ((effectiveScores.sum() * 100) / 60).coerceIn(0, 100)
+  }
 }

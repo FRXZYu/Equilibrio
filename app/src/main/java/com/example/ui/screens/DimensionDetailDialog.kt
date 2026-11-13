@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AssessmentReport
 import com.example.model.DimensionsProvider
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.SurfaceCardLight
@@ -211,10 +213,13 @@ fun DimensionDetailDialog(
       }
     },
     confirmButton = {
+      val okInteraction = rememberBounceInteractionSource()
       Button(
         onClick = onDismiss,
+        interactionSource = okInteraction,
         colors = ButtonDefaults.buttonColors(containerColor = AccentCharcoal),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.bouncyScale(okInteraction)
       ) {
         Text("Entendido", color = Color.White)
       }

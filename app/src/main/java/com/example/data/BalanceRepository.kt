@@ -8,8 +8,10 @@ import com.example.domain.CompletionRecord
 import com.example.domain.DayKey
 import com.example.domain.HexagonCalculator
 import com.example.model.AssessmentReport
+import com.example.model.GamificationStats
 import com.example.model.UserProfile
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 fun CompletionEntity.toDomain(): CompletionRecord {
@@ -79,11 +81,23 @@ class BalanceRepository(
   }
 
   /**
+   * Flow de EXP acumulado por dimensión (0..5) en los últimos 14 días.
+   */
+  val expByDimension14d: Flow<Map<Int, Int>> = completionsLast14Days.map { completions14d ->
+    HexagonCalculator.calculateExpByDimension14d(completions14d, dayKey)
+  }
+
+  /**
    * Flow de los IDs de misiones completadas en el día de hoy.
    */
   val todayCompletedMissionIds: Flow<Set<String>> = completionDao.getCompletionsForDate(dayKey.today()).map { list ->
     list.map { it.missionId }.toSet()
   }
+
+  /**
+   * Flow reactivo de los IDs de misiones guardadas para más tarde.
+   */
+  val savedMissionIds: Flow<Set<String>> = assessmentRepository.savedMissionIdsFlow
 
   /**
    * Flow reactivo de UserProfile con nivel, EXP, misiones y racha derivados 100% de Room.
@@ -111,6 +125,7 @@ class BalanceRepository(
 
   /**
    * Marca o desmarca una misión para la fecha indicada (por defecto hoy).
+   * Respeta el límite anti-abuso de 150 EXP diarios al marcar, pero igual registra la misión y actualiza racha.
    * Al desmarcarla, se elimina la fila en Room.
    * Retorna true si fue marcada como completada, o false si fue desmarcada.
    */
@@ -125,14 +140,19 @@ class BalanceRepository(
       completionDao.deleteCompletion(missionId, date)
       false
     } else {
+      val expAlreadyToday = completionDao.getCompletionsForDate(date).first().sumOf { it.expAwarded }
+      val remainingCap = (GamificationStats.DAILY_EXP_CAP - expAlreadyToday).coerceAtLeast(0)
+      val awarded = minOf(expReward.coerceAtLeast(0), remainingCap)
+
       completionDao.insertCompletion(
         CompletionEntity(
           missionId = missionId,
           dimensionIndex = dimensionIndex,
-          expAwarded = expReward,
+          expAwarded = awarded,
           date = date
         )
       )
+      assessmentRepository.removeSavedMission(missionId)
       true
     }
   }

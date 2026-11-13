@@ -117,4 +117,31 @@ class HexagonCalculatorTest {
     val lowest = HexagonCalculator.findLowestRealDimension(realScores, perceivedScores)
     assertEquals("Debe desempatar eligiendo la dimensión 2 por tener menor percibido", 2, lowest)
   }
+
+  @Test
+  fun testCalculateExpByDimension14d() {
+    val today = testDayKey.today()
+    val hace15Dias = testDayKey.daysAgo(15)
+    val completions = listOf(
+      CompletionRecord(missionId = "a", dimensionIndex = 0, expAwarded = 45, date = today),
+      CompletionRecord(missionId = "b", dimensionIndex = 0, expAwarded = 30, date = testDayKey.daysAgo(2)),
+      CompletionRecord(missionId = "c", dimensionIndex = 4, expAwarded = 60, date = today),
+      CompletionRecord(missionId = "old", dimensionIndex = 0, expAwarded = 100, date = hace15Dias)
+    )
+
+    val expMap = HexagonCalculator.calculateExpByDimension14d(completions, testDayKey)
+    assertEquals(75, expMap[0])
+    assertEquals(0, expMap[1])
+    assertEquals(60, expMap[4])
+  }
+
+  @Test
+  fun testCalculateLiveHarmonyPercentage() {
+    val perceived = (0..5).associateWith { 6 } // 36/60 -> 60%
+    val emptyReal = (0..5).associateWith { 0 }
+    assertEquals(60, HexagonCalculator.calculateLiveHarmonyPercentage(emptyReal, perceived))
+
+    val highReal = (0..5).associateWith { 9 } // 54/60 -> 90%
+    assertEquals(90, HexagonCalculator.calculateLiveHarmonyPercentage(highReal, perceived))
+  }
 }

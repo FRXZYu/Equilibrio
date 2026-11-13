@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.ui.components.bouncyClick
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.CanvasBackgroundLight
@@ -174,19 +176,17 @@ fun ProfilePhotoScreen(
 
       Spacer(modifier = Modifier.height(28.dp))
 
+      val galleryBtnInteraction = rememberBounceInteractionSource()
       OutlinedButton(
         onClick = {
           photoPickerLauncher.launch(
             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
           )
         },
+        interactionSource = galleryBtnInteraction,
         shape = RoundedCornerShape(16.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
-        modifier = Modifier.bouncyClick {
-          photoPickerLauncher.launch(
-            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-          )
-        }
+        modifier = Modifier.bouncyScale(galleryBtnInteraction)
       ) {
         Icon(
           imageVector = Icons.Default.AddPhotoAlternate,
@@ -201,10 +201,12 @@ fun ProfilePhotoScreen(
       }
     }
 
+    val continueInteraction = rememberBounceInteractionSource()
     Button(
       onClick = {
         onContinue(selectedUri?.toString())
       },
+      interactionSource = continueInteraction,
       shape = RoundedCornerShape(18.dp),
       colors = ButtonDefaults.buttonColors(
         containerColor = AccentCharcoal,
@@ -213,9 +215,7 @@ fun ProfilePhotoScreen(
       modifier = Modifier
         .fillMaxWidth()
         .height(54.dp)
-        .bouncyClick {
-          onContinue(selectedUri?.toString())
-        }
+        .bouncyScale(continueInteraction)
         .testTag("btn_continue_photo")
     ) {
       Text(

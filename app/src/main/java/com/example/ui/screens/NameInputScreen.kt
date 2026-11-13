@@ -37,7 +37,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.components.bouncyClick
+import com.example.ui.components.bouncyScale
+import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
 import com.example.ui.theme.CanvasBackgroundLight
@@ -121,11 +122,13 @@ fun NameInputScreen(
       )
     }
 
+    val continueInteraction = rememberBounceInteractionSource()
     Button(
       onClick = {
         val trimmed = name.trim().ifEmpty { "Kirenia" }
         onNameSubmitted(trimmed)
       },
+      interactionSource = continueInteraction,
       shape = RoundedCornerShape(18.dp),
       colors = ButtonDefaults.buttonColors(
         containerColor = AccentCharcoal,
@@ -134,10 +137,7 @@ fun NameInputScreen(
       modifier = Modifier
         .fillMaxWidth()
         .height(54.dp)
-        .bouncyClick {
-          val trimmed = name.trim().ifEmpty { "Kirenia" }
-          onNameSubmitted(trimmed)
-        }
+        .bouncyScale(continueInteraction)
         .testTag("btn_continue_name")
     ) {
       Text(
