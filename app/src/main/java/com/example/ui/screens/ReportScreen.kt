@@ -116,6 +116,7 @@ fun ReportScreen(
   onFilterChange: (ReportFilter) -> Unit,
   onRetake: () -> Unit,
   onContinue: () -> Unit,
+  isProfileCompleted: Boolean = false,
   modifier: Modifier = Modifier
 ) {
   val haptic = LocalHapticFeedback.current
@@ -204,6 +205,7 @@ fun ReportScreen(
         // ==========================================
         ReportCompactHeader(
           report = report,
+          isProfileCompleted = isProfileCompleted,
           onRetake = {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onRetake()
@@ -429,7 +431,7 @@ fun ReportScreen(
             .testTag("btn_continue_footer")
         ) {
           Text(
-            text = "Continuar al Perfil y Metas",
+            text = if (isProfileCompleted) "Volver al Panel Principal" else "Continuar al Perfil y Metas",
             style = MaterialTheme.typography.labelLarge.copy(
               fontWeight = FontWeight.Bold,
               fontSize = 15.sp
@@ -459,6 +461,7 @@ fun ReportScreen(
 @Composable
 private fun ReportCompactHeader(
   report: AssessmentReport,
+  isProfileCompleted: Boolean,
   onRetake: () -> Unit,
   onContinue: () -> Unit
 ) {
@@ -539,7 +542,7 @@ private fun ReportCompactHeader(
           .testTag("btn_continue_header")
       ) {
         Text(
-          text = "Continuar",
+          text = if (isProfileCompleted) "Panel" else "Continuar",
           style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
         )
       }

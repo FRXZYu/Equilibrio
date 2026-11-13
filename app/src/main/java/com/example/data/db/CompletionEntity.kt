@@ -5,8 +5,8 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Entidad Room para el registro histórico de completaciones de misiones.
- * Cada fila representa una misión completada en un día local específico con su EXP otorgada.
+ * Entidad Room para el registro histórico de acciones realizadas.
+ * Conserva la fecha local, valoración de utilidad ("Me ayudó", "Neutro", "Pesado") y reflexión breve.
  */
 @Entity(
   tableName = "completions",
@@ -21,6 +21,8 @@ data class CompletionEntity(
   val id: Long = 0,
   val missionId: String,
   val dimensionIndex: Int,
-  val expAwarded: Int,
-  val date: String // Formato local "yyyy-MM-dd"
+  val date: String, // Formato local "yyyy-MM-dd"
+  val helpfulRating: String? = null,
+  val reflectionNote: String = "",
+  val completedAtMillis: Long = System.currentTimeMillis()
 )

@@ -3,14 +3,18 @@ package com.example
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.AssessmentRepository
 import com.example.data.BalanceRepository
 import com.example.data.db.AppDatabase
-import com.example.data.db.CompletionEntity
 import com.example.data.db.MissionEntity
+import com.example.domain.DayKey
+import com.example.domain.HelpfulnessRating
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -19,26 +23,47 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.Calendar
+import java.util.concurrent.atomic.AtomicLong
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class RoomRepositoryTest {
 
+  private lateinit var context: Context
   private lateinit var database: AppDatabase
+  private lateinit var clockMillis: AtomicLong
+  private lateinit var dayKey: DayKey
   private lateinit var repository: BalanceRepository
 
   @Before
   fun setUp() {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    // Crear base de datos Room en memoria para pruebas aisladas
+    context = ApplicationProvider.getApplicationContext()
+    val startCal = Calendar.getInstance().apply {
+      set(Calendar.YEAR, 2026)
+      set(Calendar.MONTH, Calendar.NOVEMBER)
+      set(Calendar.DAY_OF_MONTH, 12)
+      set(Calendar.HOUR_OF_DAY, 23)
+      set(Calendar.MINUTE, 55)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    clockMillis = AtomicLong(startCal.timeInMillis)
+    dayKey = DayKey { clockMillis.get() }
+
     database = Room.inMemoryDatabaseBuilder(
       context,
       AppDatabase::class.java
     ).allowMainThreadQueries().build()
 
+    val assessmentRepo = AssessmentRepository(context)
+    assessmentRepo.resetAssessment()
+
     repository = BalanceRepository(
       context = context,
-      database = database
+      database = database,
+      assessmentRepository = assessmentRepo,
+      dayKey = dayKey
     )
   }
 
@@ -48,77 +73,64 @@ class RoomRepositoryTest {
   }
 
   @Test
-  fun testInsertarReleerYBorrarAlDesmarcarCompletacion() = runBlocking {
-    val missionId = "test_desc_1"
-    val date = "2026-11-12"
+  fun testInsertarActualizarReflexionYBorrarCompletacion() = runBlocking {
+    val missionId = "desc_1"
+    val date = dayKey.today()
 
-    // 1. Estado inicial: ninguna completación
-    val inicial = database.completionDao().findCompletion(missionId, date)
-    assertNull("No debe existir completación al inicio", inicial)
+    assertNull(database.completionDao().findCompletion(missionId, date))
 
-    // 2. Insertar completación
     val insertId = repository.insertCompletion(
       missionId = missionId,
       dimensionIndex = 2,
-      expAwarded = 40,
+      date = date,
+      rating = HelpfulnessRating.HELPFUL,
+      reflectionNote = "Me costó soltar el móvil al inicio pero dormí mejor."
+    )
+    assertTrue(insertId > 0)
+
+    val saved = database.completionDao().findCompletion(missionId, date)
+    assertNotNull(saved)
+    assertEquals(HelpfulnessRating.HELPFUL.name, saved?.helpfulRating)
+    assertEquals("Me costó soltar el móvil al inicio pero dormí mejor.", saved?.reflectionNote)
+
+    // Actualizar reflexión posterior sin perder el registro
+    repository.saveReflectionFeedback(
+      missionId = missionId,
+      dimensionIndex = 2,
+      rating = HelpfulnessRating.NEUTRAL,
+      reflectionNote = "Nota editada",
       date = date
     )
-    assertTrue("ID insertado debe ser mayor a 0", insertId > 0)
 
-    // 3. Releer y verificar que está guardada
-    val guardada = database.completionDao().findCompletion(missionId, date)
-    assertNotNull("La completación debe existir en la base", guardada)
-    assertEquals(missionId, guardada?.missionId)
-    assertEquals(2, guardada?.dimensionIndex)
-    assertEquals(40, guardada?.expAwarded)
-    assertEquals(date, guardada?.date)
+    val updated = database.completionDao().findCompletion(missionId, date)
+    assertEquals(HelpfulnessRating.NEUTRAL.name, updated?.helpfulRating)
+    assertEquals("Nota editada", updated?.reflectionNote)
 
-    // Verificar lectura reactiva mediante Flow
-    val todas = repository.allCompletions.first()
-    assertEquals(1, todas.size)
-    assertEquals(missionId, todas[0].missionId)
-
-    // 4. Borrar al desmarcar
     val deletedCount = repository.deleteCompletion(missionId, date)
-    assertEquals("Debe haberse eliminado exactamente 1 registro", 1, deletedCount)
-
-    // 5. Verificar que ya no existe
-    val trasBorrar = database.completionDao().findCompletion(missionId, date)
-    assertNull("La completación debe haber sido eliminada tras desmarcarla", trasBorrar)
-
-    val todasTrasBorrar = repository.allCompletions.first()
-    assertTrue("La lista de completaciones debe estar vacía", todasTrasBorrar.isEmpty())
+    assertEquals(1, deletedCount)
+    assertNull(database.completionDao().findCompletion(missionId, date))
   }
 
   @Test
   fun testToggleCompletacionInsertarYDesmarcar() = runBlocking {
     val missionId = "custom_ejer_99"
-    val date = "2026-11-12"
+    val date = dayKey.today()
 
-    // Primer toggle: marcar como completada
-    val marcada = repository.toggleMissionCompletion(
+    val completed = repository.toggleMissionCompletion(
       missionId = missionId,
       dimensionIndex = 1,
-      expReward = 50,
       date = date
     )
-    assertTrue("Primer toggle debe marcar como completada", marcada)
+    assertTrue(completed)
+    assertNotNull(database.completionDao().findCompletion(missionId, date))
 
-    val existente = database.completionDao().findCompletion(missionId, date)
-    assertNotNull(existente)
-    assertEquals(50, existente?.expAwarded)
-
-    // Segundo toggle: desmarcar (borrar)
-    val desmarcada = repository.toggleMissionCompletion(
+    val unmarked = repository.toggleMissionCompletion(
       missionId = missionId,
       dimensionIndex = 1,
-      expReward = 50,
       date = date
     )
-    assertTrue("Segundo toggle debe retornar false (desmarcada)", !desmarcada)
-
-    val borrado = database.completionDao().findCompletion(missionId, date)
-    assertNull("Debe eliminarse de Room al desmarcar", borrado)
+    assertFalse(unmarked)
+    assertNull(database.completionDao().findCompletion(missionId, date))
   }
 
   @Test
@@ -126,54 +138,90 @@ class RoomRepositoryTest {
     val customMission = MissionEntity(
       id = "custom_yoga_1",
       dimensionIndex = 1,
-      title = "Yoga Restaurativo Matutino",
-      description = "Sesión de 20 minutos de asanas suaves.",
-      benefit = "Puede ayudarte a relajar la musculatura y centrar la respiración.",
-      durationLabel = "20 min",
-      expReward = 35,
-      difficulty = "Fácil",
+      title = "Estiramiento tranquilo",
+      description = "10 minutos suaves al despertar.",
+      benefit = "Puede ayudarte a soltar tensión matutina.",
+      durationLabel = "10 min",
+      durationMinutes = 10,
+      frequency = "Diariamente",
       isHabit = true
     )
 
     repository.insertCustomMission(customMission)
 
-    val misiones = repository.customMissions.first()
-    assertEquals(1, misiones.size)
-    assertEquals("custom_yoga_1", misiones[0].id)
-    assertEquals("Yoga Restaurativo Matutino", misiones[0].title)
-    assertTrue(misiones[0].isHabit)
+    val missions = repository.customMissions.first()
+    assertEquals(1, missions.size)
+    assertEquals("custom_yoga_1", missions[0].id)
+    assertEquals(10, missions[0].durationMinutes)
+    assertTrue(missions[0].isHabit)
 
-    // Eliminar misión
     repository.deleteCustomMission("custom_yoga_1")
-    val trasBorrar = repository.customMissions.first()
-    assertTrue(trasBorrar.isEmpty())
+    assertTrue(repository.customMissions.first().isEmpty())
   }
 
   @Test
-  fun testTopeDiarioExp150YGuardadoReactivo() = runBlocking {
-    val date = "2026-11-12"
+  fun testMidnightRolloverRefreshesDailyPlanWithoutLosingHistory() = runBlocking {
+    val perceivedScores = (0..5).associateWith { 5 }
+    repository.saveFocusDimensions(setOf(2)) // Descanso
 
-    // Guardar misión para más tarde y verificar flujo reactivo
-    val saved = repository.toggleSaveMissionForLater("desc_1")
-    assertTrue(saved)
-    assertTrue(repository.savedMissionIds.first().contains("desc_1"))
+    val day1Key = dayKey.today()
+    val day1Plan = repository.ensureDailyPlanForToday(perceivedScores)
+    assertEquals(3, day1Plan.size)
+    assertEquals(day1Key, day1Plan.first().date)
 
-    // Completar misiones hasta alcanzar y superar el tope de 150 EXP
-    repository.toggleMissionCompletion("m1", 0, 60, date)
-    repository.toggleMissionCompletion("m2", 1, 60, date)
-    repository.toggleMissionCompletion("m3", 2, 60, date) // Solo debe otorgar 30 EXP restantes
+    // Completar y valorar la primera acción del día 1
+    val firstAction = day1Plan.first()
+    repository.saveReflectionFeedback(
+      missionId = firstAction.missionId,
+      dimensionIndex = firstAction.dimensionIndex,
+      rating = HelpfulnessRating.HELPFUL,
+      reflectionNote = "Ayudó bastante",
+      date = day1Key
+    )
+    assertTrue(repository.todayCompletedMissionIds.first().contains(firstAction.missionId))
 
-    val m3Record = database.completionDao().findCompletion("m3", date)
-    assertNotNull(m3Record)
-    assertEquals(30, m3Record?.expAwarded)
+    // Avanzar el reloj local 10 minutos para cruzar las 00:00 (2026-11-12 23:55 -> 2026-11-13 00:05)
+    clockMillis.addAndGet(10 * 60 * 1000L)
+    val changed = repository.refreshDayIfNeeded()
+    assertTrue("Cruzar las 00:00 locales debe actualizar currentDayKey", changed)
 
-    // Una cuarta misión ya con tope completo registra 0 EXP pero sigue contando como completada
-    repository.toggleMissionCompletion("desc_1", 2, 40, date)
-    val desc1Record = database.completionDao().findCompletion("desc_1", date)
-    assertNotNull(desc1Record)
-    assertEquals(0, desc1Record?.expAwarded)
+    val day2Key = dayKey.today()
+    assertNotEquals(day1Key, day2Key)
+    assertEquals(day2Key, repository.currentDayKey.value)
 
-    // Al completarla se elimina automáticamente de guardadas
-    assertTrue(!repository.savedMissionIds.first().contains("desc_1"))
+    // El nuevo día empieza limpio en hoy, pero el historial completo conserva lo de ayer
+    assertTrue(repository.todayCompletedMissionIds.first().isEmpty())
+    val history = repository.allCompletions.first()
+    assertEquals(1, history.size)
+    assertEquals("Ayudó bastante", history.first().reflectionNote)
+
+    // El nuevo plan diario a las 00:00 evita repetir las acciones ofrecidas/completadas ayer
+    val day2Plan = repository.ensureDailyPlanForToday(perceivedScores)
+    assertEquals(3, day2Plan.size)
+    assertEquals(day2Key, day2Plan.first().date)
+    val day1Ids = day1Plan.map { it.missionId }.toSet()
+    val day2Ids = day2Plan.map { it.missionId }.toSet()
+    assertTrue("La acción completada ayer no debe repetirse hoy", firstAction.missionId !in day2Ids)
+    assertFalse("El plan de hoy debe traer acciones nuevas frente al de ayer", day1Ids == day2Ids)
+  }
+
+  @Test
+  fun testSwapDailyMissionAndReplanForFocusChange() = runBlocking {
+    val perceivedScores = (0..5).associateWith { 5 }
+    repository.saveFocusDimensions(setOf(0))
+
+    val initialPlan = repository.ensureDailyPlanForToday(perceivedScores)
+    assertEquals(3, initialPlan.size)
+
+    val swapped = repository.swapDailyMission(slotIndex = 0, perceivedScores = perceivedScores)
+    assertNotNull(swapped)
+    assertNotEquals(initialPlan[0].missionId, swapped?.missionId)
+    assertTrue(swapped?.wasSwapped == true)
+
+    // Cambiar enfoque a Hobbies (4) actualiza las ranuras pendientes
+    repository.saveFocusDimensions(setOf(4))
+    val replanned = repository.replanTodayForFocusChange(perceivedScores)
+    assertEquals(3, replanned.size)
+    assertTrue(replanned.any { it.dimensionIndex == 4 })
   }
 }

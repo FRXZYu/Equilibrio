@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun EquilibrioApp(viewModel: MainViewModel) {
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+  val selectedHomeTab by viewModel.selectedHomeTab.collectAsStateWithLifecycle()
 
   Crossfade(
     targetState = uiState,
@@ -108,8 +109,9 @@ fun EquilibrioApp(viewModel: MainViewModel) {
             viewModel.retakeAssessment()
           },
           onContinue = {
-            viewModel.startProfileSetup()
-          }
+            viewModel.continueFromReport()
+          },
+          isProfileCompleted = state.isProfileCompleted
         )
       }
 
@@ -169,6 +171,10 @@ fun EquilibrioApp(viewModel: MainViewModel) {
         MainHomeScreen(
           userProfile = state.userProfile,
           report = state.report,
+          selectedTab = selectedHomeTab,
+          onSelectTab = { tab ->
+            viewModel.selectHomeTab(tab)
+          },
           onOpenReport = {
             viewModel.openDetailedReportFromHome()
           },

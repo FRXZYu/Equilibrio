@@ -43,7 +43,7 @@ object DimensionsProvider {
       index = 0,
       key = DimensionKey.AUTOESTIMA,
       title = "Autoestima",
-      question = "¿Cuánto confías en ti misma y en tus capacidades?",
+      question = "¿Cuánto confías en ti y en tus capacidades?",
       description = "Confianza intrínseca, autoeficacia y seguridad para enfrentar desafíos sin depender exclusivamente de la aprobación externa.",
       minLabel = "Dudas frecuentes e inseguridad",
       maxLabel = "Confianza plena y autoaceptación",
@@ -67,7 +67,7 @@ object DimensionsProvider {
       title = "Descanso",
       question = "¿Tus hábitos te permiten descansar y recuperar energía?",
       description = "Higiene de sueño reparador, pausas cognitivas intencionales y capacidad de desconexión sin culpa.",
-      minLabel = "Agotamiento crónico o mal sueño",
+      minLabel = "Cansancio frecuente o sueño ligero",
       maxLabel = "Recuperación profunda y energía matutina",
       icon = Icons.Outlined.NightlightRound,
       accentColor = ColorDescanso
@@ -100,7 +100,7 @@ object DimensionsProvider {
       title = "Excelencia",
       question = "¿Das lo mejor de ti en cada proyecto?",
       description = "Rigor, compromiso consciente, pasión por los detalles y la aspiración constante de maestría personal.",
-      minLabel = "Conformismo o desinterés",
+      minLabel = "Desgaste o falta de motivación",
       maxLabel = "Dedicación total, orgullo y maestría",
       icon = Icons.Outlined.WorkspacePremium,
       accentColor = ColorExcelencia

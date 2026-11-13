@@ -4,8 +4,8 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 /**
- * Entidad Room para misiones personalizadas creadas por el usuario con el botón "+".
- * Las misiones predeterminadas del sistema provienen de MissionsProvider sin duplicarse en base de datos.
+ * Entidad Room para acciones o hábitos personalizados creados por la persona con el botón "+".
+ * Las acciones base provienen de MissionsProvider sin duplicarse en base de datos.
  */
 @Entity(tableName = "custom_missions")
 data class MissionEntity(
@@ -16,7 +16,7 @@ data class MissionEntity(
   val description: String,
   val benefit: String,
   val durationLabel: String,
-  val expReward: Int,
-  val difficulty: String,
+  val durationMinutes: Int = 10,
+  val frequency: String = "Diariamente",
   val isHabit: Boolean
 )

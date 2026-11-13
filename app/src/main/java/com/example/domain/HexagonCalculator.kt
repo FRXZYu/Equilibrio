@@ -1,66 +1,58 @@
 package com.example.domain
 
 /**
- * Calculador de dominio puro para las estadísticas del hexágono y gamificación de la app.
- * Sin dependencias de Android (100% testeable en JVM).
+ * Resumen de cómo se ha sentido la persona con las acciones completadas.
+ */
+data class HelpfulnessSummary(
+  val helpfulCount: Int,
+  val neutralCount: Int,
+  val heavyCount: Int,
+  val helpfulByDimension: Map<Int, Int>,
+  val helpfulMissionIds: Set<String>,
+  val heavyMissionIds: Set<String>
+) {
+  val totalRated: Int get() = helpfulCount + neutralCount + heavyCount
+}
+
+/**
+ * Calculador de dominio puro para el hexágono de equilibrio basado en acciones reales de cuidado,
+ * sin niveles, rangos ni métricas de EXP que confundan puntos con bienestar.
+ * 100% testeable en JVM sin dependencias de Android.
  */
 object HexagonCalculator {
 
   /**
-   * Objetivo de puntos de EXP acumulados en una dimensión durante 14 días para alcanzar un puntaje real de 10.
-   * Valor provisional: 140 EXP (equivale aprox. a 10 EXP diarios o 3-4 misiones completadas en esa dimensión).
+   * Meta orientativa de acciones de cuidado realizadas en una dimensión durante 14 días
+   * para reflejar consistencia plena (10/10) en el hexágono real.
+   * Valor provisional y sereno: 5 acciones en 2 semanas (~2-3 veces por semana).
    */
-  const val DEFAULT_OBJETIVO_EXP = 140
+  const val DEFAULT_OBJETIVO_ACCIONES = 5
 
   /**
-   * Mapa de objetivos por dimensión (índices 0 a 5).
-   * Centralizado en una sola constante para ajuste sencillo.
+   * Mapa de metas orientativas por dimensión (índices 0 a 5).
    */
-  val DEFAULT_OBJETIVOS: Map<Int, Int> = (0..5).associateWith { DEFAULT_OBJETIVO_EXP }
+  val DEFAULT_OBJETIVOS: Map<Int, Int> = (0..5).associateWith { DEFAULT_OBJETIVO_ACCIONES }
 
   /**
-   * EXP necesaria por nivel (provisional, cada 200 de EXP sube 1 nivel).
-   */
-  const val EXP_POR_NIVEL = 200
-
-  /**
-   * Calcula los 6 puntajes reales (0..5) a partir de las completaciones registradas en los últimos 14 días.
-   * Fórmula: real(dim) = min(10, 10 * puntosExp14d(dim) / OBJETIVO(dim)).
-   *
-   * Las completaciones con fechas fuera de la ventana de 14 días son descartadas.
+   * Calcula los 6 puntajes reales (0..10) a partir de las acciones registradas en los últimos 14 días.
+   * Fórmula: real(dim) = min(10, 10 * acciones14d(dim) / OBJETIVO(dim)).
+   * Evita duplicar la misma acción el mismo día si llegara repetida.
    */
   fun calculateRealScores(
     completions: List<CompletionRecord>,
     dayKey: DayKey = DayKey.DEFAULT,
     objetivos: Map<Int, Int> = DEFAULT_OBJETIVOS
   ): Map<Int, Int> {
-    val validDays = dayKey.getRangeLastDays(14).toSet()
-    val completions14d = completions.filter { it.date in validDays }
-
-    val expByDimension = mutableMapOf<Int, Int>()
-    for (i in 0..5) {
-      expByDimension[i] = 0
-    }
-
-    for (c in completions14d) {
-      if (c.dimensionIndex in 0..5) {
-        val current = expByDimension[c.dimensionIndex] ?: 0
-        expByDimension[c.dimensionIndex] = current + c.expAwarded
-      }
-    }
-
-    val result = mutableMapOf<Int, Int>()
-    for (i in 0..5) {
-      val puntos = expByDimension[i] ?: 0
-      val objetivo = objetivos[i] ?: DEFAULT_OBJETIVO_EXP
-      val score = if (objetivo > 0) {
-        minOf(10, (10 * puntos) / objetivo)
+    val actionsByDim = calculateActionsByDimension14d(completions, dayKey)
+    return (0..5).associateWith { dim ->
+      val count = actionsByDim[dim] ?: 0
+      val objetivo = objetivos[dim] ?: DEFAULT_OBJETIVO_ACCIONES
+      if (objetivo > 0) {
+        minOf(10, (10 * count) / objetivo)
       } else {
         0
       }
-      result[i] = score
     }
-    return result
   }
 
   /**
@@ -71,22 +63,12 @@ object HexagonCalculator {
     dayKey: DayKey = DayKey.DEFAULT,
     objetivos: Map<Int, Int> = DEFAULT_OBJETIVOS
   ): Map<Int, Float> {
-    val validDays = dayKey.getRangeLastDays(14).toSet()
-    val completions14d = completions.filter { it.date in validDays }
-
-    val expByDimension = (0..5).associateWith { 0 }.toMutableMap()
-    for (c in completions14d) {
-      if (c.dimensionIndex in 0..5) {
-        val current = expByDimension[c.dimensionIndex] ?: 0
-        expByDimension[c.dimensionIndex] = current + c.expAwarded
-      }
-    }
-
-    return (0..5).associateWith { i ->
-      val puntos = expByDimension[i] ?: 0
-      val objetivo = objetivos[i] ?: DEFAULT_OBJETIVO_EXP
+    val actionsByDim = calculateActionsByDimension14d(completions, dayKey)
+    return (0..5).associateWith { dim ->
+      val count = actionsByDim[dim] ?: 0
+      val objetivo = objetivos[dim] ?: DEFAULT_OBJETIVO_ACCIONES
       if (objetivo > 0) {
-        minOf(10f, (10f * puntos) / objetivo.toFloat())
+        minOf(10f, (10f * count) / objetivo.toFloat())
       } else {
         0f
       }
@@ -94,35 +76,27 @@ object HexagonCalculator {
   }
 
   /**
-   * Exp total = suma de expAwarded de todas las completaciones históricas.
+   * Cuenta acciones únicas (missionId + date) por dimensión en los últimos 14 días.
    */
-  fun calculateTotalExp(completions: List<CompletionRecord>): Int {
-    return completions.sumOf { it.expAwarded }
-  }
+  fun calculateActionsByDimension14d(
+    completions: List<CompletionRecord>,
+    dayKey: DayKey = DayKey.DEFAULT
+  ): Map<Int, Int> {
+    val validDays = dayKey.getRangeLastDays(14).toSet()
+    val uniqueRecent = completions
+      .filter { it.date in validDays && it.dimensionIndex in 0..5 }
+      .distinctBy { "${it.missionId}_${it.date}" }
 
-  /**
-   * Nivel = exp total / 200 + 1 (provisional, cada 200 EXP es un nivel nuevo).
-   */
-  fun calculateLevel(totalExp: Int): Int {
-    return (totalExp / EXP_POR_NIVEL) + 1
-  }
-
-  /**
-   * Rango descriptivo basado en el nivel actual.
-   */
-  fun calculateRank(level: Int): String {
-    return when {
-      level <= 2 -> "Principiante"
-      level <= 4 -> "Explorador"
-      level <= 7 -> "Equilibrado"
-      level <= 10 -> "Conquistador"
-      else -> "Maestro"
+    val counts = (0..5).associateWith { 0 }.toMutableMap()
+    for (c in uniqueRecent) {
+      counts[c.dimensionIndex] = (counts[c.dimensionIndex] ?: 0) + 1
     }
+    return counts
   }
 
   /**
-   * Racha = días consecutivos con al menos una completación, terminando hoy o ayer.
-   * Si hoy aún no hay completaciones, la racha NO se rompe hasta que termine el día.
+   * Días consecutivos con al menos una acción amable de cuidado, terminando hoy o ayer.
+   * Si hoy aún no hay registros, no se pierde hasta que termine el día.
    */
   fun calculateStreak(
     completions: List<CompletionRecord>,
@@ -133,7 +107,6 @@ object HexagonCalculator {
     val yesterday = dayKey.yesterday()
 
     return if (today in activeDates) {
-      // Hoy ya se completó al menos una misión: contamos hacia atrás empezando hoy
       var streak = 1
       var daysBack = 1
       while (dayKey.daysAgo(daysBack) in activeDates) {
@@ -142,7 +115,6 @@ object HexagonCalculator {
       }
       streak
     } else if (yesterday in activeDates) {
-      // Hoy aún no se completa ninguna, pero ayer sí: la racha sigue viva
       var streak = 1
       var daysBack = 2
       while (dayKey.daysAgo(daysBack) in activeDates) {
@@ -151,15 +123,91 @@ object HexagonCalculator {
       }
       streak
     } else {
-      // Ni hoy ni ayer hubo completaciones: racha es 0
       0
     }
   }
 
   /**
+   * Cantidad de días distintos de los últimos 14 en los que hubo al menos una acción registrada.
+   */
+  fun calculateActiveDaysLast14(
+    completions: List<CompletionRecord>,
+    dayKey: DayKey = DayKey.DEFAULT
+  ): Int {
+    val validDays = dayKey.getRangeLastDays(14).toSet()
+    return completions.map { it.date }.filter { it in validDays }.toSet().size
+  }
+
+  /**
+   * Resume qué acciones y áreas han resultado realmente útiles para la persona.
+   */
+  fun calculateHelpfulnessSummary(completions: List<CompletionRecord>): HelpfulnessSummary {
+    var helpful = 0
+    var neutral = 0
+    var heavy = 0
+    val helpfulByDim = (0..5).associateWith { 0 }.toMutableMap()
+    val helpfulIds = mutableSetOf<String>()
+    val heavyIds = mutableSetOf<String>()
+
+    // Usamos el registro más reciente de cada misión para identificar si hoy resulta pesada o útil
+    val latestByMission = completions.groupBy { it.missionId }
+      .mapValues { (_, list) -> list.maxByOrNull { it.completedAtMillis } ?: list.last() }
+
+    for (c in completions) {
+      when (c.helpfulness) {
+        HelpfulnessRating.HELPFUL -> {
+          helpful++
+          if (c.dimensionIndex in 0..5) {
+            helpfulByDim[c.dimensionIndex] = (helpfulByDim[c.dimensionIndex] ?: 0) + 1
+          }
+        }
+        HelpfulnessRating.NEUTRAL -> neutral++
+        HelpfulnessRating.HEAVY -> heavy++
+        null -> Unit
+      }
+    }
+
+    for ((missionId, latest) in latestByMission) {
+      when (latest.helpfulness) {
+        HelpfulnessRating.HELPFUL -> helpfulIds.add(missionId)
+        HelpfulnessRating.HEAVY -> heavyIds.add(missionId)
+        else -> Unit
+      }
+    }
+
+    return HelpfulnessSummary(
+      helpfulCount = helpful,
+      neutralCount = neutral,
+      heavyCount = heavy,
+      helpfulByDimension = helpfulByDim,
+      helpfulMissionIds = helpfulIds,
+      heavyMissionIds = heavyIds
+    )
+  }
+
+  /**
+   * Elige el área prioritaria respetando primero la elección explícita de la persona;
+   * si aún no ha elegido, sugiere suavemente el área con más espacio para cuidar.
+   */
+  fun findPriorityDimension(
+    realScores: Map<Int, Int>,
+    perceivedScores: Map<Int, Int>,
+    chosenFocusDimensions: Set<Int> = emptySet()
+  ): Int {
+    val validChosen = chosenFocusDimensions.filter { it in 0..5 }
+    if (validChosen.isNotEmpty()) {
+      return validChosen.minByOrNull { dim ->
+        val real = realScores[dim] ?: 0
+        val perceived = perceivedScores[dim] ?: 5
+        real * 100 + perceived
+      } ?: validChosen.first()
+    }
+    return findLowestRealDimension(realScores, perceivedScores)
+  }
+
+  /**
    * Determina la dimensión real más baja (0 a 5).
-   * En caso de empate, desempata eligiendo la dimensión más baja del percibido.
-   * Si persiste el empate, elige el menor índice.
+   * En caso de empate, desempata eligiendo la más baja del percibido.
    */
   fun findLowestRealDimension(
     realScores: Map<Int, Int>,
@@ -173,41 +221,17 @@ object HexagonCalculator {
       val real = realScores[dim] ?: 0
       val perceived = perceivedScores[dim] ?: 5
 
-      if (real < minReal) {
+      if (real < minReal || (real == minReal && perceived < minPerceived)) {
         minDimension = dim
         minReal = real
         minPerceived = perceived
-      } else if (real == minReal) {
-        // Desempate con la más baja del percibido
-        if (perceived < minPerceived) {
-          minDimension = dim
-          minReal = real
-          minPerceived = perceived
-        }
       }
     }
     return minDimension
   }
 
   /**
-   * Calcula la EXP acumulada por cada dimensión (0..5) en los últimos 14 días.
-   */
-  fun calculateExpByDimension14d(
-    completions: List<CompletionRecord>,
-    dayKey: DayKey = DayKey.DEFAULT
-  ): Map<Int, Int> {
-    val validDays = dayKey.getRangeLastDays(14).toSet()
-    val expByDimension = (0..5).associateWith { 0 }.toMutableMap()
-    for (c in completions) {
-      if (c.date in validDays && c.dimensionIndex in 0..5) {
-        expByDimension[c.dimensionIndex] = (expByDimension[c.dimensionIndex] ?: 0) + c.expAwarded
-      }
-    }
-    return expByDimension
-  }
-
-  /**
-   * Calcula el porcentaje de armonía vivo combinando el estado real (si hay datos) y el percibido.
+   * Calcula un indicador suave de equilibrio vivo combinando percepción inicial y acciones reales.
    */
   fun calculateLiveHarmonyPercentage(
     realScores: Map<Int, Int>,
@@ -222,7 +246,6 @@ object HexagonCalculator {
       } else if (real >= perceived) {
         real
       } else {
-        // Promedio ponderado suave para que completar misiones sume visiblemente sin desplomar el puntaje inicial
         ((perceived * 0.65f) + (real * 0.35f)).toInt().coerceIn(1, 10)
       }
     }

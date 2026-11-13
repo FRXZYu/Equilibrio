@@ -1,11 +1,15 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,10 +26,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.NightlightRound
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -34,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,12 +48,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.model.AllZodiacSigns
-import com.example.model.ZodiacSign
+import com.example.model.DimensionsProvider
 import com.example.ui.components.bouncyScale
 import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
@@ -58,22 +64,24 @@ import com.example.ui.theme.SurfaceCardLight
 import com.example.ui.theme.SurfaceVariantLight
 import com.example.ui.theme.TextPrimaryLight
 import com.example.ui.theme.TextSecondaryLight
-import com.example.ui.theme.TextTertiaryLight
 
+/**
+ * Pantalla serena de cierre del registro inicial:
+ * permite a cada persona elegir libremente qué área(s) quiere cuidar primero
+ * y definir una intención sencilla para este mes.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ZodiacAndGoalScreen(
-  initialZodiac: String = "Aries",
-  initialGoal: String = "Quiero ser mi mejor versión",
-  onFinished: (zodiacSign: String, zodiacSymbol: String, monthlyGoal: String) -> Unit,
+fun FocusAndGoalScreen(
+  initialFocusDimensions: Set<Int> = emptySet(),
+  initialGoal: String = "Cuidarme con pasos pequeños y realistas",
+  onFinished: (chosenFocusDimensions: Set<Int>, monthlyGoal: String) -> Unit,
   modifier: Modifier = Modifier
 ) {
-  var selectedZodiac by remember {
-    mutableStateOf(AllZodiacSigns.firstOrNull { it.name == initialZodiac } ?: AllZodiacSigns[0])
-  }
-  var goal by remember { mutableStateOf(initialGoal) }
-
-  val verticalScrollState = rememberScrollState()
-  val horizontalZodiacScroll = rememberScrollState()
+  val haptic = LocalHapticFeedback.current
+  var selectedFocus by remember(initialFocusDimensions) { mutableStateOf(initialFocusDimensions) }
+  var goal by remember(initialGoal) { mutableStateOf(initialGoal) }
+  val scrollState = rememberScrollState()
 
   Column(
     modifier = modifier
@@ -87,14 +95,14 @@ fun ZodiacAndGoalScreen(
     Column(
       modifier = Modifier
         .weight(1f)
-        .verticalScroll(verticalScrollState)
+        .verticalScroll(scrollState)
     ) {
-      Spacer(modifier = Modifier.height(16.dp))
+      Spacer(modifier = Modifier.height(12.dp))
 
       Text(
-        text = "Tu Esencia y Tu Meta",
+        text = "Tu Enfoque y Propósito",
         style = MaterialTheme.typography.displayMedium.copy(
-          fontSize = 28.sp,
+          fontSize = 27.sp,
           fontWeight = FontWeight.Bold
         ),
         color = TextPrimaryLight
@@ -103,83 +111,106 @@ fun ZodiacAndGoalScreen(
       Spacer(modifier = Modifier.height(6.dp))
 
       Text(
-        text = "Conecta tu signo astrológico y define tu norte para este mes.",
+        text = "Elige libremente en qué áreas quieres avanzar hoy y escribe una intención amable.",
         style = MaterialTheme.typography.bodyLarge,
         color = TextSecondaryLight
       )
 
-      Spacer(modifier = Modifier.height(28.dp))
+      Spacer(modifier = Modifier.height(26.dp))
 
-      // Section 1: Signo Zodiacal
       Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
-          imageVector = Icons.Outlined.NightlightRound,
+          imageVector = Icons.Outlined.Explore,
           contentDescription = null,
           tint = AccentCharcoal,
           modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-          text = "¿Cuál es tu signo zodiacal?",
+          text = "¿Qué áreas quieres cuidar?",
           style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
           color = TextPrimaryLight
         )
       }
 
+      Spacer(modifier = Modifier.height(6.dp))
+
+      Text(
+        text = "Puedes seleccionar una o varias, o cambiarlas en cualquier momento desde Hoy y Progreso.",
+        style = MaterialTheme.typography.bodySmall,
+        color = TextSecondaryLight
+      )
+
       Spacer(modifier = Modifier.height(14.dp))
 
-      // Horizontal scrollable zodiac selector pills
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .horizontalScroll(horizontalZodiacScroll),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+      FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        AllZodiacSigns.forEach { sign ->
-          val isSelected = sign.name == selectedZodiac.name
-          val zodiacInteraction = rememberBounceInteractionSource()
+        DimensionsProvider.dimensions.forEach { dim ->
+          val isSelected = dim.index in selectedFocus
+          val interaction = rememberBounceInteractionSource()
+          val bg by animateColorAsState(
+            targetValue = if (isSelected) AccentCharcoal else SurfaceCardLight,
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            label = "focus_chip_bg_${dim.index}"
+          )
 
           Surface(
-            onClick = { selectedZodiac = sign },
-            interactionSource = zodiacInteraction,
-            shape = RoundedCornerShape(18.dp),
-            color = if (isSelected) AccentCharcoal else SurfaceCardLight,
-            border = androidx.compose.foundation.BorderStroke(
-              1.dp,
-              if (isSelected) AccentCharcoal else BorderLight
-            ),
-            modifier = Modifier.bouncyScale(zodiacInteraction)
+            onClick = {
+              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+              selectedFocus = if (isSelected) {
+                selectedFocus - dim.index
+              } else {
+                selectedFocus + dim.index
+              }
+            },
+            interactionSource = interaction,
+            shape = RoundedCornerShape(16.dp),
+            color = bg,
+            border = BorderStroke(1.dp, if (isSelected) AccentCharcoal else BorderLight),
+            modifier = Modifier
+              .minimumInteractiveComponentSize()
+              .bouncyScale(interaction, scaleDown = 0.94f)
+              .testTag("focus_dim_option_${dim.index}")
           ) {
-            Column(
-              modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-              horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+              modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+              verticalAlignment = Alignment.CenterVertically
             ) {
+              Box(
+                modifier = Modifier
+                  .size(24.dp)
+                  .clip(CircleShape)
+                  .background(
+                    if (isSelected) Color.White.copy(alpha = 0.16f)
+                    else dim.accentColor.copy(alpha = 0.14f)
+                  ),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(
+                  imageVector = if (isSelected) Icons.Filled.Check else dim.icon,
+                  contentDescription = null,
+                  tint = if (isSelected) Color.White else dim.accentColor,
+                  modifier = Modifier.size(14.dp)
+                )
+              }
+              Spacer(modifier = Modifier.width(8.dp))
               Text(
-                text = sign.symbol,
-                style = MaterialTheme.typography.displayMedium.copy(fontSize = 26.sp),
-                color = if (isSelected) Color.White else TextPrimaryLight
-              )
-              Spacer(modifier = Modifier.height(4.dp))
-              Text(
-                text = sign.name,
+                text = dim.title,
                 style = MaterialTheme.typography.labelLarge.copy(
                   fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                 ),
                 color = if (isSelected) Color.White else TextPrimaryLight
-              )
-              Text(
-                text = sign.dates,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isSelected) Color(0xFFD1D5DB) else TextTertiaryLight
               )
             }
           }
         }
       }
 
-      Spacer(modifier = Modifier.height(32.dp))
+      Spacer(modifier = Modifier.height(28.dp))
 
-      // Section 2: Meta para el mes
       Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
           imageVector = Icons.Outlined.Flag,
@@ -189,7 +220,7 @@ fun ZodiacAndGoalScreen(
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-          text = "Tu meta para este mes",
+          text = "Tu intención para este mes",
           style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
           color = TextPrimaryLight
         )
@@ -197,7 +228,6 @@ fun ZodiacAndGoalScreen(
 
       Spacer(modifier = Modifier.height(6.dp))
 
-      // Mandatory user requirement message: "puedes cambiarlo despues"
       Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -213,8 +243,8 @@ fun ZodiacAndGoalScreen(
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
-          text = "Puedes cambiarlo después",
-          style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+          text = "Puedes cambiarla después sin presión",
+          style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
           color = TextSecondaryLight
         )
       }
@@ -224,7 +254,7 @@ fun ZodiacAndGoalScreen(
       OutlinedTextField(
         value = goal,
         onValueChange = { goal = it },
-        placeholder = { Text("Ej. Quiero ser mi mejor versión") },
+        placeholder = { Text("Ej. Cuidar mi descanso y disfrutar mis tardes") },
         minLines = 2,
         maxLines = 4,
         shape = RoundedCornerShape(18.dp),
@@ -247,8 +277,9 @@ fun ZodiacAndGoalScreen(
     val finishInteraction = rememberBounceInteractionSource()
     Button(
       onClick = {
-        val trimmedGoal = goal.trim().ifEmpty { "Quiero ser mi mejor versión" }
-        onFinished(selectedZodiac.name, selectedZodiac.symbol, trimmedGoal)
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        val trimmedGoal = goal.trim().ifEmpty { "Cuidarme con pasos pequeños y realistas" }
+        onFinished(selectedFocus, trimmedGoal)
       },
       interactionSource = finishInteraction,
       shape = RoundedCornerShape(18.dp),
@@ -263,7 +294,7 @@ fun ZodiacAndGoalScreen(
         .testTag("btn_finish_onboarding")
     ) {
       Text(
-        text = "Entrar a mi Panel Principal",
+        text = "Entrar a mi espacio",
         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
       )
       Spacer(modifier = Modifier.width(8.dp))

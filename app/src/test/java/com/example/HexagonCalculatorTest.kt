@@ -2,146 +2,156 @@ package com.example
 
 import com.example.domain.CompletionRecord
 import com.example.domain.DayKey
+import com.example.domain.HelpfulnessRating
 import com.example.domain.HexagonCalculator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Calendar
 
 class HexagonCalculatorTest {
 
-  // Reloj fijo para pruebas: 2026-11-12 12:00:00 UTC (1762948800000L)
-  private val testMillis = 1762948800000L
-  private val testDayKey = DayKey { testMillis }
-
-  @Test
-  fun testSinDatos() {
-    val completions = emptyList<CompletionRecord>()
-    val scores = HexagonCalculator.calculateRealScores(completions, testDayKey)
-
-    assertEquals(6, scores.size)
-    for (i in 0..5) {
-      assertEquals("Dimensión $i debe ser 0 sin datos", 0, scores[i])
+  private fun fixedClock(year: Int, month: Int, day: Int): DayKey {
+    val cal = Calendar.getInstance().apply {
+      set(Calendar.YEAR, year)
+      set(Calendar.MONTH, month)
+      set(Calendar.DAY_OF_MONTH, day)
+      set(Calendar.HOUR_OF_DAY, 12)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
     }
-
-    assertEquals("EXP total sin datos debe ser 0", 0, HexagonCalculator.calculateTotalExp(completions))
-    assertEquals("Nivel sin datos debe ser 1", 1, HexagonCalculator.calculateLevel(0))
+    val fixedMillis = cal.timeInMillis
+    return DayKey { fixedMillis }
   }
 
   @Test
-  fun testUnaSolaDimension() {
-    val today = testDayKey.today()
-    // 70 puntos de EXP en la dimensión 1 (Ejercicio), con objetivo de 140
-    // 10 * 70 / 140 = 5
+  fun testRealScoresByUniqueActionCountLast14Days() {
+    val dayKey = fixedClock(2026, Calendar.NOVEMBER, 12)
     val completions = listOf(
-      CompletionRecord(missionId = "m1", dimensionIndex = 1, expAwarded = 40, date = today),
-      CompletionRecord(missionId = "m2", dimensionIndex = 1, expAwarded = 30, date = today)
+      // Dimensión 0: 1 acción -> (10 * 1) / 5 = 2
+      CompletionRecord(missionId = "auto_1", dimensionIndex = 0, date = dayKey.today()),
+      // Dimensión 1: 3 acciones en distintos días -> (10 * 3) / 5 = 6
+      CompletionRecord(missionId = "ejer_1", dimensionIndex = 1, date = dayKey.today()),
+      CompletionRecord(missionId = "ejer_2", dimensionIndex = 1, date = dayKey.daysAgo(2)),
+      CompletionRecord(missionId = "ejer_3", dimensionIndex = 1, date = dayKey.daysAgo(13)),
+      // Dimensión 2: 5 acciones -> 10 (tope)
+      CompletionRecord(missionId = "desc_1", dimensionIndex = 2, date = dayKey.today()),
+      CompletionRecord(missionId = "desc_2", dimensionIndex = 2, date = dayKey.daysAgo(1)),
+      CompletionRecord(missionId = "desc_3", dimensionIndex = 2, date = dayKey.daysAgo(2)),
+      CompletionRecord(missionId = "desc_4", dimensionIndex = 2, date = dayKey.daysAgo(3)),
+      CompletionRecord(missionId = "desc_5", dimensionIndex = 2, date = dayKey.daysAgo(4)),
+      // Misma acción duplicada el mismo día no debe inflar el puntaje
+      CompletionRecord(missionId = "auto_1", dimensionIndex = 0, date = dayKey.today()),
+      // Acción de hace 14 días (fuera de ventana de últimos 14 días) debe ignorarse
+      CompletionRecord(missionId = "rela_1", dimensionIndex = 3, date = dayKey.daysAgo(14))
     )
 
-    val scores = HexagonCalculator.calculateRealScores(completions, testDayKey)
+    val realScores = HexagonCalculator.calculateRealScores(completions, dayKey)
+    assertEquals(2, realScores[0])
+    assertEquals(6, realScores[1])
+    assertEquals(10, realScores[2])
+    assertEquals(0, realScores[3])
+    assertEquals(0, realScores[4])
+    assertEquals(0, realScores[5])
 
-    assertEquals("Dimensión 1 debe ser 5 (70/140)", 5, scores[1])
-    assertEquals("Dimensión 0 debe ser 0", 0, scores[0])
-    assertEquals("Dimensión 2 debe ser 0", 0, scores[2])
-    assertEquals("Dimensión 3 debe ser 0", 0, scores[3])
-    assertEquals("Dimensión 4 debe ser 0", 0, scores[4])
-    assertEquals("Dimensión 5 debe ser 0", 0, scores[5])
+    val counts = HexagonCalculator.calculateActionsByDimension14d(completions, dayKey)
+    assertEquals(1, counts[0])
+    assertEquals(3, counts[1])
+    assertEquals(5, counts[2])
+    assertEquals(0, counts[3])
   }
 
   @Test
-  fun testTodasParejas() {
-    val today = testDayKey.today()
-    // 140 puntos en cada una de las 6 dimensiones
-    val completions = (0..5).map { dim ->
-      CompletionRecord(missionId = "m_$dim", dimensionIndex = dim, expAwarded = 140, date = today)
-    }
-
-    val scores = HexagonCalculator.calculateRealScores(completions, testDayKey)
-
-    for (i in 0..5) {
-      assertEquals("Todas las dimensiones deben alcanzar 10", 10, scores[i])
-    }
-  }
-
-  @Test
-  fun testTopeEn10() {
-    val today = testDayKey.today()
-    // 280 puntos en dimensión 0 (doble del objetivo de 140)
+  fun testRealScoresFloatAndLiveHarmony() {
+    val dayKey = fixedClock(2026, Calendar.NOVEMBER, 12)
     val completions = listOf(
-      CompletionRecord(missionId = "m_super", dimensionIndex = 0, expAwarded = 280, date = today)
+      CompletionRecord(missionId = "auto_1", dimensionIndex = 0, date = dayKey.today()),
+      CompletionRecord(missionId = "auto_2", dimensionIndex = 0, date = dayKey.daysAgo(1)),
+      CompletionRecord(missionId = "auto_3", dimensionIndex = 0, date = dayKey.daysAgo(2))
     )
 
-    val scores = HexagonCalculator.calculateRealScores(completions, testDayKey)
+    val floatScores = HexagonCalculator.calculateRealScoresFloat(completions, dayKey)
+    assertEquals(6.0f, floatScores[0] ?: 0f, 0.01f)
+    assertEquals(0.0f, floatScores[1] ?: 0f, 0.01f)
 
-    assertEquals("El puntaje real no debe superar 10", 10, scores[0])
+    val perceived = (0..5).associateWith { 6 }
+    val harmony = HexagonCalculator.calculateLiveHarmonyPercentage(
+      realScores = HexagonCalculator.calculateRealScores(completions, dayKey),
+      perceivedScores = perceived
+    )
+    assertTrue("La armonía viva debe estar entre 0 y 100", harmony in 1..100)
   }
 
   @Test
-  fun testCompletacionesFueraDeLos14DiasIgnoradas() {
-    val today = testDayKey.today()
-    val hace13Dias = testDayKey.daysAgo(13) // Dentro de la ventana de 14 días
-    val hace14Dias = testDayKey.daysAgo(14) // Fuera de la ventana (día 15 hacia atrás)
-    val hace20Dias = testDayKey.daysAgo(20) // Muy anterior
+  fun testFindPriorityDimensionRespectsUserChoiceBeforeFallback() {
+    val realScores = mapOf(0 to 8, 1 to 2, 2 to 0, 3 to 6, 4 to 6, 5 to 6)
+    val perceivedScores = mapOf(0 to 7, 1 to 5, 2 to 4, 3 to 6, 4 to 6, 5 to 6)
 
-    val completions = listOf(
-      CompletionRecord(missionId = "c_hoy", dimensionIndex = 2, expAwarded = 35, date = today),
-      CompletionRecord(missionId = "c_hace13", dimensionIndex = 2, expAwarded = 35, date = hace13Dias),
-      CompletionRecord(missionId = "c_hace14", dimensionIndex = 2, expAwarded = 70, date = hace14Dias), // ignorado
-      CompletionRecord(missionId = "c_hace20", dimensionIndex = 2, expAwarded = 140, date = hace20Dias) // ignorado
+    // Si la persona eligió avanzar en Autoestima (0) y Hobbies (4), se respeta su elección
+    val chosenPriority = HexagonCalculator.findPriorityDimension(
+      realScores = realScores,
+      perceivedScores = perceivedScores,
+      chosenFocusDimensions = setOf(0, 4)
     )
+    assertEquals(4, chosenPriority)
 
-    val scores = HexagonCalculator.calculateRealScores(completions, testDayKey)
-
-    // Solo se suman 35 + 35 = 70 EXP -> (10 * 70) / 140 = 5
-    assertEquals("Solo deben computarse completaciones de los últimos 14 días", 5, scores[2])
+    // Sin elección explícita, sugiere la más baja real (con desempate por percibido)
+    val fallbackPriority = HexagonCalculator.findPriorityDimension(
+      realScores = realScores,
+      perceivedScores = perceivedScores,
+      chosenFocusDimensions = emptySet()
+    )
+    assertEquals(2, fallbackPriority)
   }
 
   @Test
-  fun testDimensionMasBajaRealConDesempate() {
-    val realScores = mapOf(
-      0 to 5,
-      1 to 2, // Empate en real más bajo
-      2 to 2, // Empate en real más bajo
-      3 to 6,
-      4 to 8,
-      5 to 7
-    )
-    val perceivedScores = mapOf(
-      0 to 8,
-      1 to 6, // Percibido de dimensión 1 es 6
-      2 to 3, // Percibido de dimensión 2 es 3 (más bajo que 1)
-      3 to 7,
-      4 to 8,
-      5 to 9
-    )
+  fun testFindLowestRealDimensionTieBreaksByPerceived() {
+    val realScores = mapOf(0 to 0, 1 to 0, 2 to 4, 3 to 4, 4 to 2, 5 to 6)
+    val perceivedScores = mapOf(0 to 7, 1 to 3, 2 to 8, 3 to 5, 4 to 6, 5 to 9)
 
     val lowest = HexagonCalculator.findLowestRealDimension(realScores, perceivedScores)
-    assertEquals("Debe desempatar eligiendo la dimensión 2 por tener menor percibido", 2, lowest)
+    assertEquals(1, lowest)
   }
 
   @Test
-  fun testCalculateExpByDimension14d() {
-    val today = testDayKey.today()
-    val hace15Dias = testDayKey.daysAgo(15)
+  fun testHelpfulnessSummaryUsesLatestRatingPerMission() {
     val completions = listOf(
-      CompletionRecord(missionId = "a", dimensionIndex = 0, expAwarded = 45, date = today),
-      CompletionRecord(missionId = "b", dimensionIndex = 0, expAwarded = 30, date = testDayKey.daysAgo(2)),
-      CompletionRecord(missionId = "c", dimensionIndex = 4, expAwarded = 60, date = today),
-      CompletionRecord(missionId = "old", dimensionIndex = 0, expAwarded = 100, date = hace15Dias)
+      CompletionRecord(
+        missionId = "desc_1",
+        dimensionIndex = 2,
+        date = "2026-11-10",
+        helpfulness = HelpfulnessRating.HEAVY,
+        completedAtMillis = 100L
+      ),
+      CompletionRecord(
+        missionId = "desc_1",
+        dimensionIndex = 2,
+        date = "2026-11-12",
+        helpfulness = HelpfulnessRating.HELPFUL,
+        completedAtMillis = 200L
+      ),
+      CompletionRecord(
+        missionId = "ejer_1",
+        dimensionIndex = 1,
+        date = "2026-11-11",
+        helpfulness = HelpfulnessRating.HEAVY,
+        completedAtMillis = 150L
+      ),
+      CompletionRecord(
+        missionId = "rela_1",
+        dimensionIndex = 3,
+        date = "2026-11-12",
+        helpfulness = HelpfulnessRating.NEUTRAL,
+        completedAtMillis = 180L
+      )
     )
 
-    val expMap = HexagonCalculator.calculateExpByDimension14d(completions, testDayKey)
-    assertEquals(75, expMap[0])
-    assertEquals(0, expMap[1])
-    assertEquals(60, expMap[4])
-  }
-
-  @Test
-  fun testCalculateLiveHarmonyPercentage() {
-    val perceived = (0..5).associateWith { 6 } // 36/60 -> 60%
-    val emptyReal = (0..5).associateWith { 0 }
-    assertEquals(60, HexagonCalculator.calculateLiveHarmonyPercentage(emptyReal, perceived))
-
-    val highReal = (0..5).associateWith { 9 } // 54/60 -> 90%
-    assertEquals(90, HexagonCalculator.calculateLiveHarmonyPercentage(highReal, perceived))
+    val summary = HexagonCalculator.calculateHelpfulnessSummary(completions)
+    assertEquals(1, summary.helpfulCount)
+    assertEquals(1, summary.neutralCount)
+    assertEquals(2, summary.heavyCount)
+    assertTrue("desc_1 debe quedar como útil según su último registro", "desc_1" in summary.helpfulMissionIds)
+    assertTrue("ejer_1 debe quedar marcada como pesada", "ejer_1" in summary.heavyMissionIds)
   }
 }

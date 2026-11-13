@@ -1,8 +1,6 @@
 package com.example
 
 import com.example.model.BalanceMission
-import com.example.model.DimensionsProvider
-import com.example.model.GamificationStats
 import com.example.model.MissionsProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,114 +10,58 @@ import org.junit.Test
 class MissionTest {
 
   @Test
-  fun testGenerateMissionsPrioritizesWeaknesses() {
-    // Descanso (2) and Autoestima (3) are lowest
-    val scores = mapOf(
-      0 to 3, // Autoestima (weak)
-      1 to 8, // Ejercicio (strong)
-      2 to 2, // Descanso (weak)
-      3 to 7, // Relaciones (strong)
-      4 to 8, // Hobbies (strong)
-      5 to 9  // Excelencia (strong)
-    )
-    val missions = MissionsProvider.generateMissionsForUser(scores)
-    assertTrue("Should generate missions", missions.isNotEmpty())
-
-    val weakMissions = missions.filter { it.isWeaknessFocus }
-    assertTrue("Should flag weakness focus missions", weakMissions.isNotEmpty())
-    val descansoMissions = weakMissions.filter { it.dimensionIndex == 2 }
-    assertTrue("Should prioritize Descanso", descansoMissions.isNotEmpty())
-  }
-
-  @Test
-  fun testWeaknessMissionsAward1Point5xExpMultiplier() {
-    val scores = mapOf(
-      0 to 3, // Autoestima (weak <= 6 -> 1.5x)
-      1 to 9, // Ejercicio (strong > 6 -> 1.0x)
-      2 to 2, // Descanso (weak <= 6 -> 1.5x)
-      3 to 8, // Relaciones
-      4 to 8, // Hobbies
-      5 to 9  // Excelencia
-    )
+  fun testCatalogContains36ConcreteActionsAcrossAll6Dimensions() {
+    val scores = mapOf(0 to 5, 1 to 6, 2 to 4, 3 to 7, 4 to 8, 5 to 6)
     val missions = MissionsProvider.generateMissionsForUser(scores)
 
-    // Weak mission (e.g. Descanso)
-    val descansoMission = missions.first { it.dimensionIndex == 2 }
-    assertTrue("Weak mission must have multiplier", descansoMission.hasMultiplier)
-    assertEquals(
-      "Weak mission must award 1.5x base EXP",
-      (descansoMission.baseExpReward * 1.5).toInt(),
-      descansoMission.expReward
-    )
-
-    // Strong mission (e.g. Ejercicio)
-    val ejercicioMission = missions.first { it.dimensionIndex == 1 }
-    assertFalse("Strong mission must not have 1.5x multiplier", ejercicioMission.hasMultiplier)
-    assertEquals(
-      "Strong mission must award standard normal EXP",
-      ejercicioMission.baseExpReward,
-      ejercicioMission.expReward
-    )
+    assertEquals(36, missions.size)
+    assertEquals(36, missions.map { it.id }.distinct().size)
+    for (dimIndex in 0..5) {
+      assertEquals(6, missions.count { it.dimensionIndex == dimIndex })
+    }
+    assertTrue(missions.all { it.steps.size >= 3 && it.durationMinutes in 3..15 })
   }
 
   @Test
-  fun testDailyExpCapAndLevelCalculation() {
-    val statsNormal = GamificationStats(
-      totalExp = 200,
-      expToday = 80,
-      completedMissionsCount = 10,
-      activeStreakDays = 3
+  fun testChosenFocusDimensionsArePrioritizedInCatalogOrdering() {
+    val scores = mapOf(0 to 9, 1 to 2, 2 to 9, 3 to 8, 4 to 9, 5 to 8)
+    // Aunque Ejercicio (1) tiene puntaje bajo, la persona eligió Hobbies (4) como enfoque
+    val missions = MissionsProvider.generateMissionsForUser(
+      scores = scores,
+      chosenFocusDimensions = setOf(4)
     )
 
-    assertFalse("80 EXP is under 150 daily cap", statsNormal.isDailyCapReached)
-    assertEquals(70, statsNormal.remainingDailyExp)
-    assertEquals(2, statsNormal.level)
-    assertEquals("Principiante", statsNormal.rank)
-
-    val statsCapped = GamificationStats(
-      totalExp = 350,
-      expToday = 150,
-      completedMissionsCount = 14,
-      activeStreakDays = 4
-    )
-
-    assertTrue("150 EXP reaches daily cap", statsCapped.isDailyCapReached)
-    assertEquals(0, statsCapped.remainingDailyExp)
-    assertEquals(3, statsCapped.level)
-    assertEquals("Buscador de Armonía", statsCapped.rank)
+    assertEquals(4, missions.first().dimensionIndex)
+    assertTrue(missions.filter { it.dimensionIndex == 4 }.all { it.isPriorityFocus })
+    assertFalse(missions.filter { it.dimensionIndex == 1 }.any { it.isPriorityFocus })
   }
 
   @Test
-  fun testCustomMissionCreationWithHabit() {
-    val habitDays = listOf("Lun", "Mié", "Vie")
+  fun testCustomHabitAndCandidateConversion() {
     val customMission = BalanceMission(
       id = "custom_1",
-      dimensionIndex = 0,
-      dimensionTitle = "Autoestima",
-      title = "Práctica diaria de gratitud y autoreflexión",
-      summary = "Escribir 3 cosas por las que me siento orgulloso hoy.",
-      description = "Escribir 3 cosas por las que me siento orgulloso hoy.",
-      steps = listOf("Paso 1: Preparación", "Paso 2: Ejecución", "Paso 3: Reflexión"),
-      benefit = "Eleva el autoconcepto positivo.",
-      durationLabel = "Diario",
-      baseExpReward = 35,
-      expReward = 35,
-      isWeaknessFocus = false,
-      isCompleted = false,
+      dimensionIndex = 2,
+      dimensionTitle = "Descanso",
+      title = "Lectura breve sin móvil",
+      summary = "Leer 10 minutos antes de apagar la luz.",
+      description = "Cerrar la jornada con calma lejos de pantallas.",
+      steps = listOf("Dejar el móvil fuera", "Leer 10 min", "Apagar la luz"),
+      benefit = "Facilita bajar revoluciones al final del día.",
+      durationLabel = "10 min",
+      durationMinutes = 10,
       isCustom = true,
-      difficulty = "Media",
       frequency = "Diariamente",
       isHabit = true,
       habitRepeatWeeks = 2,
-      habitDays = habitDays,
-      habitEndRule = "Nunca"
+      habitDays = listOf("L", "M", "V"),
+      habitEndRule = "Después de 4 semanas"
     )
 
-    assertTrue(customMission.isCustom)
-    assertTrue(customMission.isHabit)
-    assertEquals(2, customMission.habitRepeatWeeks)
-    assertEquals(3, customMission.habitDays.size)
-    assertEquals("Nunca", customMission.habitEndRule)
-    assertFalse(customMission.isCompleted)
+    val candidate = customMission.toCandidate()
+    assertEquals("custom_1", candidate.id)
+    assertEquals(2, candidate.dimensionIndex)
+    assertEquals(10, candidate.durationMinutes)
+    assertTrue(candidate.isCustom)
+    assertTrue(candidate.isHabit)
   }
 }

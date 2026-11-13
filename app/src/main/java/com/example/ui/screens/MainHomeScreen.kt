@@ -73,6 +73,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -98,9 +99,15 @@ fun MainHomeScreen(
   report: AssessmentReport,
   onOpenReport: () -> Unit,
   onUpdateGoal: (String) -> Unit,
+  selectedTab: Int = 2,
+  onSelectTab: ((Int) -> Unit)? = null,
   modifier: Modifier = Modifier
 ) {
-  var selectedTab by remember { mutableIntStateOf(2) } // 0: Misiones, 1: Habilidades, 2: Hoy, 3: Plan, 4: Logros
+  var fallbackTab by remember { mutableIntStateOf(selectedTab) } // 0: Misiones, 1: Habilidades, 2: Hoy, 3: Plan, 4: Logros
+  val currentTab = if (onSelectTab != null) selectedTab else fallbackTab
+  val setTab: (Int) -> Unit = { tab ->
+    if (onSelectTab != null) onSelectTab(tab) else fallbackTab = tab
+  }
   var showEditGoalDialog by remember { mutableStateOf(false) }
   var editedGoal by remember(userProfile.monthlyGoal) { mutableStateOf(userProfile.monthlyGoal) }
 
@@ -142,8 +149,8 @@ fun MainHomeScreen(
   var activeDetailMissionId by remember { mutableStateOf<String?>(null) }
 
   // Al pulsar atrás en pestañas secundarias, regresa a "Hoy"
-  BackHandler(enabled = selectedTab != 2 && !isFabExpanded) {
-    selectedTab = 2
+  BackHandler(enabled = currentTab != 2 && !isFabExpanded) {
+    setTab(2)
   }
   BackHandler(enabled = isFabExpanded) {
     isFabExpanded = false
@@ -224,7 +231,7 @@ fun MainHomeScreen(
           .fillMaxWidth()
       ) {
         AnimatedContent(
-          targetState = selectedTab,
+          targetState = currentTab,
           transitionSpec = {
             fadeIn(tween(220, easing = FastOutSlowInEasing)) togetherWith
               fadeOut(tween(150, easing = FastOutSlowInEasing))
@@ -348,7 +355,7 @@ fun MainHomeScreen(
                 completionsCount = syncedProfile.completedMissions,
                 customMissionsCount = customMissionsEntities.size,
                 onOpenFullReport = onOpenReport,
-                onNavigateToMissions = { selectedTab = 0 }
+                onNavigateToMissions = { setTab(0) }
               )
             }
           }
@@ -362,7 +369,7 @@ fun MainHomeScreen(
         modifier = Modifier
           .fillMaxWidth()
           .navigationBarsPadding()
-          .padding(horizontal = 18.dp, vertical = 8.dp),
+          .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
       ) {
         Surface(
@@ -381,60 +388,60 @@ fun MainHomeScreen(
             NavBottomItem(
               icon = Icons.Outlined.TaskAlt,
               label = "Misiones",
-              isSelected = selectedTab == 0,
+              isSelected = currentTab == 0,
               modifier = Modifier.weight(1f),
               onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 isFabExpanded = false
-                selectedTab = 0
+                setTab(0)
               }
             )
 
             NavBottomItem(
               icon = Icons.Outlined.Hexagon,
               label = "Habilidades",
-              isSelected = selectedTab == 1,
+              isSelected = currentTab == 1,
               modifier = Modifier.weight(1f),
               onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 isFabExpanded = false
-                selectedTab = 1
+                setTab(1)
               }
             )
 
             NavBottomItem(
               icon = Icons.Outlined.Person,
               label = "Hoy",
-              isSelected = selectedTab == 2,
+              isSelected = currentTab == 2,
               modifier = Modifier.weight(1f),
               onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 isFabExpanded = false
-                selectedTab = 2
+                setTab(2)
               }
             )
 
             NavBottomItem(
               icon = Icons.Outlined.CalendarMonth,
               label = "Plan",
-              isSelected = selectedTab == 3,
+              isSelected = currentTab == 3,
               modifier = Modifier.weight(1f),
               onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 isFabExpanded = false
-                selectedTab = 3
+                setTab(3)
               }
             )
 
             NavBottomItem(
               icon = Icons.Outlined.EmojiEvents,
               label = "Logros",
-              isSelected = selectedTab == 4,
+              isSelected = currentTab == 4,
               modifier = Modifier.weight(1f),
               onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 isFabExpanded = false
-                selectedTab = 4
+                setTab(4)
               }
             )
           }
@@ -566,7 +573,7 @@ fun MainHomeScreen(
           )
         }
         showCreateMissionDialog = false
-        selectedTab = if (newMission.isHabit) 3 else 0
+        setTab(if (newMission.isHabit) 3 else 0)
       }
     )
   }
@@ -719,6 +726,8 @@ private fun NavBottomItem(
       ),
       color = contentColor,
       maxLines = 1,
+      softWrap = false,
+      overflow = TextOverflow.Ellipsis,
       textAlign = TextAlign.Center
     )
     Spacer(modifier = Modifier.height(3.dp))

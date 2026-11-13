@@ -17,22 +17,24 @@ class DayKey(
   private val dateFormat: SimpleDateFormat
     get() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
+  fun currentMillis(): Long = relojMillis()
+
   /**
-   * Clave del día actual ("yyyy-MM-dd").
+   * Clave del día actual ("yyyy-MM-dd") en hora local.
    */
   fun today(): String {
     return format(relojMillis())
   }
 
   /**
-   * Clave del día de ayer ("yyyy-MM-dd").
+   * Clave del día de ayer ("yyyy-MM-dd") en hora local.
    */
   fun yesterday(): String {
     return daysAgo(1)
   }
 
   /**
-   * Clave de N días atrás ("yyyy-MM-dd").
+   * Clave de N días atrás ("yyyy-MM-dd") en hora local.
    */
   fun daysAgo(days: Int): String {
     val cal = Calendar.getInstance()
@@ -66,6 +68,22 @@ class DayKey(
   fun isWithinLastDays(dateStr: String, daysCount: Int = 14): Boolean {
     val range = getRangeLastDays(daysCount).toSet()
     return range.contains(dateStr)
+  }
+
+  /**
+   * Milisegundos restantes hasta las próximas 00:00:00.000 según la hora local del dispositivo.
+   */
+  fun millisUntilNextMidnight(): Long {
+    val now = relojMillis()
+    val nextMidnight = Calendar.getInstance().apply {
+      timeInMillis = now
+      add(Calendar.DAY_OF_YEAR, 1)
+      set(Calendar.HOUR_OF_DAY, 0)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    return (nextMidnight.timeInMillis - now).coerceAtLeast(1_000L)
   }
 
   companion object {

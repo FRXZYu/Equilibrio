@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,8 +17,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -25,6 +27,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,14 +50,17 @@ import com.example.ui.theme.TextPrimaryLight
 import com.example.ui.theme.TextSecondaryLight
 
 /**
- * Diálogo modal con el detalle y diagnóstico psicológico de una dimensión del hexágono.
- * Se abre al tocar un vértice o chip en el hexágono de dos capas.
+ * Diálogo sereno con la lectura de una dimensión del hexágono
+ * y la opción de marcarla como área de enfoque actual.
  */
 @Composable
 fun DimensionDetailDialog(
   dimensionIndex: Int,
   report: AssessmentReport,
   realScore: Int = 0,
+  actionsLast14d: Int = 0,
+  isChosenFocus: Boolean = false,
+  onToggleFocus: (() -> Unit)? = null,
   onDismiss: () -> Unit
 ) {
   val dimension = DimensionsProvider.dimensions.getOrNull(dimensionIndex) ?: return
@@ -88,7 +94,7 @@ fun DimensionDetailDialog(
           )
         }
 
-        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
           Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = TextSecondaryLight)
         }
       }
@@ -99,7 +105,6 @@ fun DimensionDetailDialog(
           .fillMaxWidth()
           .verticalScroll(rememberScrollState())
       ) {
-        // Tarjeta de puntajes comparados
         Surface(
           shape = RoundedCornerShape(16.dp),
           color = SurfaceVariantLight,
@@ -124,7 +129,7 @@ fun DimensionDetailDialog(
                 color = TextPrimaryLight
               )
               Text(
-                text = "En tu cuestionario",
+                text = "Tu punto de partida",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondaryLight
               )
@@ -139,17 +144,17 @@ fun DimensionDetailDialog(
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
               Text(
-                text = "REAL (14 DÍAS)",
+                text = "PRÁCTICA (14 DÍAS)",
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 color = TextSecondaryLight
               )
               Text(
-                text = "$realScore / 10",
+                text = if (actionsLast14d > 0) "$actionsLast14d ${if (actionsLast14d == 1) "acción" else "acciones"}" else "$realScore / 10",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = if (realScore > 0) AccentCharcoal else TextSecondaryLight
+                color = if (realScore > 0 || actionsLast14d > 0) AccentCharcoal else TextSecondaryLight
               )
               Text(
-                text = if (realScore > 0) "Comprobado en hechos" else "Empieza hoy",
+                text = if (actionsLast14d > 0) "Práctica actual: $realScore/10" else "Sin pasos aún",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondaryLight
               )
@@ -159,7 +164,6 @@ fun DimensionDetailDialog(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Diagnóstico descriptivo
         if (diagnostic != null) {
           Text(
             text = diagnostic.diagnosisSummary,
@@ -178,11 +182,10 @@ fun DimensionDetailDialog(
 
           Spacer(modifier = Modifier.height(14.dp))
 
-          // Consejos clave de crecimiento
           Surface(
             shape = RoundedCornerShape(16.dp),
             color = SurfaceCardLight,
-            border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
+            border = BorderStroke(1.dp, BorderLight),
             modifier = Modifier.fillMaxWidth()
           ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -195,7 +198,7 @@ fun DimensionDetailDialog(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                  text = "Acción clave recomendada",
+                  text = "Paso amable sugerido",
                   style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                   color = TextPrimaryLight
                 )
@@ -212,6 +215,29 @@ fun DimensionDetailDialog(
         }
       }
     },
+    dismissButton = if (onToggleFocus != null) {
+      {
+        val focusInteraction = rememberBounceInteractionSource()
+        OutlinedButton(
+          onClick = onToggleFocus,
+          interactionSource = focusInteraction,
+          shape = RoundedCornerShape(14.dp),
+          border = BorderStroke(1.dp, if (isChosenFocus) dimension.accentColor else BorderLight),
+          colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = if (isChosenFocus) dimension.accentColor else TextPrimaryLight
+          ),
+          modifier = Modifier.bouncyScale(focusInteraction)
+        ) {
+          Icon(
+            imageVector = if (isChosenFocus) Icons.Filled.Check else Icons.Outlined.Explore,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(if (isChosenFocus) "En tu enfoque" else "Elegir enfoque")
+        }
+      }
+    } else null,
     confirmButton = {
       val okInteraction = rememberBounceInteractionSource()
       Button(

@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,10 +34,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.EventRepeat
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -46,7 +44,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -58,11 +56,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -74,54 +70,41 @@ import com.example.ui.components.bouncyScale
 import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
 import com.example.ui.theme.BorderLight
-import com.example.ui.theme.SurfaceCardLight
 import com.example.ui.theme.TextPrimaryLight
 import com.example.ui.theme.TextSecondaryLight
 import com.example.ui.theme.TextTertiaryLight
 import java.util.UUID
 
 /**
- * Dialog minimalista y elegante para crear una nueva misión personalizada
- * con soporte para dificultad, frecuencia, las 6 dimensiones y configuración de hábito
- * con cartel centrado superpuesto y desenfoque.
+ * Diálogo limpio y sin presión para crear una acción o hábito propio,
+ * eligiendo el área, duración realista (5-30 min) y repetición opcional.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CreateMissionDialog(
+  initialDimensionIndex: Int = 0,
   onDismiss: () -> Unit,
   onMissionCreated: (BalanceMission) -> Unit
 ) {
   var title by remember { mutableStateOf("") }
   var description by remember { mutableStateOf("") }
-  var selectedDimIndex by remember { mutableIntStateOf(0) }
-  var selectedDifficulty by remember { mutableStateOf("Media") }
+  var selectedDimIndex by remember { mutableIntStateOf(initialDimensionIndex.coerceIn(0, 5)) }
+  var selectedMinutes by remember { mutableIntStateOf(10) }
   var selectedFrequency by remember { mutableStateOf("Diariamente") }
   var isHabit by remember { mutableStateOf(false) }
 
-  // Estados del cartel de hábito
   var showHabitCartel by remember { mutableStateOf(false) }
   var habitRepeatWeeks by remember { mutableIntStateOf(1) }
   val habitDays = remember { mutableStateListOf("Lun", "Mié", "Vie") }
-  var habitEndRule by remember { mutableStateOf("Nunca") } // "Nunca" o "El día 30" / "En 30 días"
+  var habitEndRule by remember { mutableStateOf("Nunca") }
 
   val allDimensions = DimensionsProvider.dimensions
   val selectedDimension = allDimensions.getOrElse(selectedDimIndex) { allDimensions.first() }
 
   val weekDays = listOf(
-    "Lun" to "L",
-    "Mar" to "M",
-    "Mié" to "M",
-    "Jue" to "J",
-    "Vie" to "V",
-    "Sáb" to "S",
-    "Dom" to "D"
+    "Lun" to "L", "Mar" to "M", "Mié" to "X", "Jue" to "J", "Vie" to "V", "Sáb" to "S", "Dom" to "D"
   )
-
-  val difficulties = listOf(
-    "Fácil" to 20,
-    "Media" to 35,
-    "Difícil" to 50
-  )
+  val durationOptions = listOf(5, 10, 15, 30)
 
   Dialog(
     onDismissRequest = onDismiss,
@@ -134,11 +117,10 @@ fun CreateMissionDialog(
         .padding(16.dp),
       contentAlignment = Alignment.Center
     ) {
-      // Formulario Principal: "Crea tu misión"
       Surface(
         shape = RoundedCornerShape(28.dp),
         color = Color(0xFFFAFAFC),
-        border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
+        border = BorderStroke(1.dp, BorderLight),
         shadowElevation = 16.dp,
         modifier = Modifier
           .fillMaxWidth()
@@ -150,24 +132,23 @@ fun CreateMissionDialog(
             .fillMaxSize()
             .padding(horizontal = 22.dp, vertical = 20.dp)
         ) {
-          // Encabezado
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
               Text(
-                text = "Crea tu misión",
+                text = "Nueva acción",
                 style = MaterialTheme.typography.headlineSmall.copy(
-                  fontSize = 24.sp,
+                  fontSize = 23.sp,
                   fontWeight = FontWeight.Bold
                 ),
                 color = TextPrimaryLight
               )
               Spacer(modifier = Modifier.height(2.dp))
               Text(
-                text = "Personaliza un reto enfocado en tu bienestar",
+                text = "Define algo concreto y alcanzable para cuidarte",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondaryLight
               )
@@ -176,7 +157,8 @@ fun CreateMissionDialog(
             IconButton(
               onClick = onDismiss,
               modifier = Modifier
-                .size(36.dp)
+                .minimumInteractiveComponentSize()
+                .size(40.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.05f))
             ) {
@@ -189,19 +171,18 @@ fun CreateMissionDialog(
             }
           }
 
-          Spacer(modifier = Modifier.height(16.dp))
+          Spacer(modifier = Modifier.height(14.dp))
 
-          // Cuerpo con scroll
           Column(
             modifier = Modifier
               .weight(1f)
               .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
           ) {
-            // 1. Nombre de la misión
+            // Nombre
             Column {
               Text(
-                text = "Nombre",
+                text = "Acción concreta",
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = TextPrimaryLight
               )
@@ -211,7 +192,7 @@ fun CreateMissionDialog(
                 onValueChange = { title = it },
                 placeholder = {
                   Text(
-                    "Ej: Caminar 20 min al aire libre",
+                    "Ej: Caminar 10 min sin teléfono",
                     color = TextTertiaryLight,
                     fontSize = 14.sp
                   )
@@ -230,14 +211,14 @@ fun CreateMissionDialog(
               )
             }
 
-            // 2. Descripción (opcional)
+            // Detalles opcionales
             Column {
               Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
               ) {
                 Text(
-                  text = "Descripción",
+                  text = "Nota o contexto",
                   style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                   color = TextPrimaryLight
                 )
@@ -253,7 +234,7 @@ fun CreateMissionDialog(
                 onValueChange = { description = it },
                 placeholder = {
                   Text(
-                    "¿Qué beneficios o detalles tendrá esta actividad?",
+                    "¿Cuándo o cómo prefieres hacerlo?",
                     color = TextTertiaryLight,
                     fontSize = 14.sp
                   )
@@ -270,10 +251,10 @@ fun CreateMissionDialog(
               )
             }
 
-            // 3. Habilidad que mejora (Las 6 habilidades)
+            // Área
             Column {
               Text(
-                text = "Habilidad que mejora",
+                text = "Área que cuida",
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = TextPrimaryLight
               )
@@ -289,7 +270,7 @@ fun CreateMissionDialog(
                   Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = if (isSelected) dim.accentColor.copy(alpha = 0.15f) else Color.White,
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                       width = if (isSelected) 1.5.dp else 1.dp,
                       color = if (isSelected) dim.accentColor else BorderLight
                     ),
@@ -298,7 +279,7 @@ fun CreateMissionDialog(
                       .testTag("dim_chip_${dim.index}")
                   ) {
                     Row(
-                      modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                      modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                       verticalAlignment = Alignment.CenterVertically
                     ) {
                       Box(
@@ -321,10 +302,10 @@ fun CreateMissionDialog(
               }
             }
 
-            // 4. Dificultad
+            // Duración estimada
             Column {
               Text(
-                text = "Dificultad",
+                text = "Tiempo realista",
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = TextPrimaryLight
               )
@@ -334,32 +315,26 @@ fun CreateMissionDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
               ) {
-                difficulties.forEach { (diff, exp) ->
-                  val isSelected = selectedDifficulty == diff
+                durationOptions.forEach { mins ->
+                  val isSelected = selectedMinutes == mins
                   Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = if (isSelected) AccentCharcoal else Color.White,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) AccentCharcoal else BorderLight),
+                    border = BorderStroke(1.dp, if (isSelected) AccentCharcoal else BorderLight),
                     modifier = Modifier
                       .weight(1f)
-                      .bouncyClick { selectedDifficulty = diff }
+                      .bouncyClick { selectedMinutes = mins }
                   ) {
-                    Column(
-                      modifier = Modifier.padding(vertical = 10.dp),
-                      horizontalAlignment = Alignment.CenterHorizontally
+                    Box(
+                      modifier = Modifier.padding(vertical = 11.dp),
+                      contentAlignment = Alignment.Center
                     ) {
                       Text(
-                        text = diff,
+                        text = "$mins min",
                         style = MaterialTheme.typography.labelMedium.copy(
                           fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         ),
                         color = if (isSelected) Color.White else TextPrimaryLight
-                      )
-                      Spacer(modifier = Modifier.height(2.dp))
-                      Text(
-                        text = "+$exp EXP",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = if (isSelected) Color(0xFFF59E0B) else TextTertiaryLight
                       )
                     }
                   }
@@ -367,10 +342,10 @@ fun CreateMissionDialog(
               }
             }
 
-            // 5. Frecuencia
+            // Frecuencia
             Column {
               Text(
-                text = "Frecuencia",
+                text = "Ritmo deseado",
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = TextPrimaryLight
               )
@@ -385,13 +360,13 @@ fun CreateMissionDialog(
                   Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = if (isSelected) AccentCharcoal else Color.White,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) AccentCharcoal else BorderLight),
+                    border = BorderStroke(1.dp, if (isSelected) AccentCharcoal else BorderLight),
                     modifier = Modifier
                       .weight(1f)
                       .bouncyClick { selectedFrequency = freq }
                   ) {
                     Box(
-                      modifier = Modifier.padding(vertical = 10.dp),
+                      modifier = Modifier.padding(vertical = 11.dp),
                       contentAlignment = Alignment.Center
                     ) {
                       Text(
@@ -407,7 +382,7 @@ fun CreateMissionDialog(
               }
             }
 
-            // 6. ¿Hábito?
+            // ¿Hábito?
             Column {
               Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -416,18 +391,17 @@ fun CreateMissionDialog(
               ) {
                 Column {
                   Text(
-                    text = "¿Hábito?",
+                    text = "¿Convertir en hábito?",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                     color = TextPrimaryLight
                   )
                   Text(
-                    text = "Configura su ciclo de repetición",
+                    text = "Prioriza esta acción en tus días elegidos",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextTertiaryLight
                   )
                 }
 
-                // Selector Sí / No
                 Row(
                   modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
@@ -436,7 +410,6 @@ fun CreateMissionDialog(
                     .padding(3.dp),
                   horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                  // Opción No
                   Surface(
                     shape = RoundedCornerShape(13.dp),
                     color = if (!isHabit) AccentCharcoal else Color.Transparent,
@@ -451,11 +424,10 @@ fun CreateMissionDialog(
                       text = "No",
                       style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                       color = if (!isHabit) Color.White else TextSecondaryLight,
-                      modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                      modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                     )
                   }
 
-                  // Opción Sí
                   Surface(
                     shape = RoundedCornerShape(13.dp),
                     color = if (isHabit) AccentCharcoal else Color.Transparent,
@@ -470,19 +442,18 @@ fun CreateMissionDialog(
                       text = "Sí",
                       style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                       color = if (isHabit) Color.White else TextSecondaryLight,
-                      modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                      modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                     )
                   }
                 }
               }
 
-              // Resumen si es hábito
               if (isHabit) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Surface(
                   shape = RoundedCornerShape(14.dp),
                   color = Color.White,
-                  border = androidx.compose.foundation.BorderStroke(1.dp, BorderLight),
+                  border = BorderStroke(1.dp, BorderLight),
                   modifier = Modifier
                     .fillMaxWidth()
                     .bouncyClick { showHabitCartel = true }
@@ -504,7 +475,7 @@ fun CreateMissionDialog(
                       )
                       Spacer(modifier = Modifier.width(8.dp))
                       Text(
-                        text = "Cada $habitRepeatWeeks semana • ${habitDays.joinToString(", ")} • Fin: $habitEndRule",
+                        text = "Cada $habitRepeatWeeks sem. · ${habitDays.joinToString(", ")} · $habitEndRule",
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                         color = TextPrimaryLight
                       )
@@ -521,37 +492,34 @@ fun CreateMissionDialog(
             }
           }
 
-          Spacer(modifier = Modifier.height(16.dp))
+          Spacer(modifier = Modifier.height(14.dp))
 
-          // Botón Crear Misión
           val createBtnInteraction = rememberBounceInteractionSource()
           Button(
             onClick = {
-              val finalTitle = title.trim().ifEmpty { "Misión de ${selectedDimension.title}" }
-              val expAward = difficulties.firstOrNull { it.first == selectedDifficulty }?.second ?: 35
-
+              val finalTitle = title.trim().ifEmpty { "Paso de ${selectedDimension.title}" }
+              val desc = description.trim().ifEmpty {
+                "Acción personal para cuidar tu área de ${selectedDimension.title}."
+              }
+              val durationLabel = "$selectedMinutes min"
               val newMission = BalanceMission(
                 id = UUID.randomUUID().toString(),
                 dimensionIndex = selectedDimIndex,
                 dimensionTitle = selectedDimension.title,
                 title = finalTitle,
-                summary = description.trim().take(90).ifEmpty { "Actividad para potenciar tu ${selectedDimension.title}." },
-                description = description.trim().ifEmpty {
-                  "Actividad personalizada para potenciar tu nivel de ${selectedDimension.title}."
-                },
+                summary = desc.take(90),
+                description = desc,
                 steps = listOf(
-                  "Paso 1 (Preparación): Prepara tu entorno y despeja cualquier distracción para enfocarte.",
-                  "Paso 2 (Ejecución): Realiza la actividad con atención plena durante el tiempo asignado.",
-                  "Paso 3 (Reflexión): Agradece tu compromiso con tu crecimiento y bienestar personal."
+                  "Reserva $durationLabel sin prisas.",
+                  desc,
+                  "Al terminar, anota cómo te hizo sentir."
                 ),
-                benefit = "Fomenta equilibrio y coherencia personal de forma constante.",
-                durationLabel = if (selectedFrequency == "Diariamente") "Diario" else "Semanal",
-                baseExpReward = expAward,
-                expReward = expAward,
-                isWeaknessFocus = false,
+                benefit = "Pequeños pasos elegidos por ti sostienen tu bienestar real.",
+                durationLabel = durationLabel,
+                durationMinutes = selectedMinutes,
+                isPriorityFocus = false,
                 isCompleted = false,
                 isCustom = true,
-                difficulty = selectedDifficulty,
                 frequency = selectedFrequency,
                 isHabit = isHabit,
                 habitRepeatWeeks = if (isHabit) habitRepeatWeeks else 1,
@@ -579,16 +547,13 @@ fun CreateMissionDialog(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-              text = "Crear Misión",
+              text = "Guardar acción",
               style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
           }
         }
       }
 
-      // =========================================================================
-      // CARTEL DE HÁBITO SUPERPUESTO EN EL CENTRO CON DESENFOQUE
-      // =========================================================================
       AnimatedVisibility(
         visible = showHabitCartel,
         enter = fadeIn() + scaleIn(),
@@ -601,14 +566,14 @@ fun CreateMissionDialog(
             .clickable(
               interactionSource = remember { MutableInteractionSource() },
               indication = null
-            ) { /* Evita click-through */ },
+            ) {},
           contentAlignment = Alignment.Center
         ) {
           Surface(
             shape = RoundedCornerShape(26.dp),
             color = Color.White,
             shadowElevation = 24.dp,
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, BorderLight),
+            border = BorderStroke(1.5.dp, BorderLight),
             modifier = Modifier
               .fillMaxWidth(0.92f)
               .testTag("habit_cartel_dialog")
@@ -617,7 +582,6 @@ fun CreateMissionDialog(
               modifier = Modifier.padding(22.dp),
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
-              // Icono y Título
               Box(
                 modifier = Modifier
                   .size(46.dp)
@@ -636,7 +600,7 @@ fun CreateMissionDialog(
               Spacer(modifier = Modifier.height(10.dp))
 
               Text(
-                text = "Configuración de Hábito",
+                text = "Frecuencia del hábito",
                 style = MaterialTheme.typography.titleLarge.copy(
                   fontWeight = FontWeight.Bold,
                   fontSize = 20.sp
@@ -644,75 +608,56 @@ fun CreateMissionDialog(
                 color = TextPrimaryLight
               )
 
-              Spacer(modifier = Modifier.height(18.dp))
+              Spacer(modifier = Modifier.height(16.dp))
 
-              // 1. "se repite cada: X semana"
-              Column(
+              Row(
                 modifier = Modifier
                   .fillMaxWidth()
                   .background(Color(0xFFFAFAFC), RoundedCornerShape(16.dp))
                   .border(1.dp, BorderLight, RoundedCornerShape(16.dp))
-                  .padding(14.dp)
+                  .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
               ) {
+                Text(
+                  text = "Cada:",
+                  style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                  color = TextSecondaryLight
+                )
                 Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                  verticalAlignment = Alignment.CenterVertically
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                  Text(
-                    text = "Se repite cada:",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = TextSecondaryLight
-                  )
-
-                  Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                  IconButton(
+                    onClick = { if (habitRepeatWeeks > 1) habitRepeatWeeks-- },
+                    modifier = Modifier
+                      .size(36.dp)
+                      .clip(CircleShape)
+                      .background(Color.White)
+                      .border(1.dp, BorderLight, CircleShape)
                   ) {
-                    IconButton(
-                      onClick = { if (habitRepeatWeeks > 1) habitRepeatWeeks-- },
-                      modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .border(1.dp, BorderLight, CircleShape)
-                    ) {
-                      Icon(
-                        imageVector = Icons.Default.Remove,
-                        contentDescription = "Menos semanas",
-                        tint = TextPrimaryLight,
-                        modifier = Modifier.size(16.dp)
-                      )
-                    }
-
-                    Text(
-                      text = "$habitRepeatWeeks ${if (habitRepeatWeeks == 1) "semana" else "semanas"}",
-                      style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                      color = TextPrimaryLight
-                    )
-
-                    IconButton(
-                      onClick = { if (habitRepeatWeeks < 8) habitRepeatWeeks++ },
-                      modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .border(1.dp, BorderLight, CircleShape)
-                    ) {
-                      Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Más semanas",
-                        tint = TextPrimaryLight,
-                        modifier = Modifier.size(16.dp)
-                      )
-                    }
+                    Icon(Icons.Default.Remove, contentDescription = "Menos semanas", modifier = Modifier.size(16.dp))
+                  }
+                  Text(
+                    text = "$habitRepeatWeeks ${if (habitRepeatWeeks == 1) "semana" else "semanas"}",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = TextPrimaryLight
+                  )
+                  IconButton(
+                    onClick = { if (habitRepeatWeeks < 8) habitRepeatWeeks++ },
+                    modifier = Modifier
+                      .size(36.dp)
+                      .clip(CircleShape)
+                      .background(Color.White)
+                      .border(1.dp, BorderLight, CircleShape)
+                  ) {
+                    Icon(Icons.Default.Add, contentDescription = "Más semanas", modifier = Modifier.size(16.dp))
                   }
                 }
               }
 
-              Spacer(modifier = Modifier.height(14.dp))
+              Spacer(modifier = Modifier.height(12.dp))
 
-              // 2. "se repite el: los días de la semana"
               Column(
                 modifier = Modifier
                   .fillMaxWidth()
@@ -721,12 +666,11 @@ fun CreateMissionDialog(
                   .padding(14.dp)
               ) {
                 Text(
-                  text = "Se repite el:",
+                  text = "Días preferidos:",
                   style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                   color = TextSecondaryLight
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-
                 Row(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.SpaceBetween
@@ -736,12 +680,9 @@ fun CreateMissionDialog(
                     Surface(
                       shape = CircleShape,
                       color = if (isDaySelected) AccentCharcoal else Color.White,
-                      border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isDaySelected) AccentCharcoal else BorderLight
-                      ),
+                      border = BorderStroke(1.dp, if (isDaySelected) AccentCharcoal else BorderLight),
                       modifier = Modifier
-                        .size(36.dp)
+                        .size(38.dp)
                         .bouncyClick {
                           if (isDaySelected) {
                             if (habitDays.size > 1) habitDays.remove(abbr)
@@ -753,10 +694,7 @@ fun CreateMissionDialog(
                       Box(contentAlignment = Alignment.Center) {
                         Text(
                           text = letter,
-                          style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                          ),
+                          style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                           color = if (isDaySelected) Color.White else TextPrimaryLight
                         )
                       }
@@ -765,9 +703,8 @@ fun CreateMissionDialog(
                 }
               }
 
-              Spacer(modifier = Modifier.height(14.dp))
+              Spacer(modifier = Modifier.height(12.dp))
 
-              // 3. "Finaliza: nunca, el X día"
               Column(
                 modifier = Modifier
                   .fillMaxWidth()
@@ -776,12 +713,11 @@ fun CreateMissionDialog(
                   .padding(14.dp)
               ) {
                 Text(
-                  text = "Finaliza:",
+                  text = "Revisión:",
                   style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                   color = TextSecondaryLight
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-
                 Row(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -791,10 +727,7 @@ fun CreateMissionDialog(
                     Surface(
                       shape = RoundedCornerShape(12.dp),
                       color = if (isRuleSelected) AccentCharcoal else Color.White,
-                      border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isRuleSelected) AccentCharcoal else BorderLight
-                      ),
+                      border = BorderStroke(1.dp, if (isRuleSelected) AccentCharcoal else BorderLight),
                       modifier = Modifier
                         .weight(1f)
                         .bouncyClick { habitEndRule = rule }
@@ -816,9 +749,8 @@ fun CreateMissionDialog(
                 }
               }
 
-              Spacer(modifier = Modifier.height(20.dp))
+              Spacer(modifier = Modifier.height(18.dp))
 
-              // Botón de Aceptar del Cartel
               val saveHabitInteraction = rememberBounceInteractionSource()
               Button(
                 onClick = { showHabitCartel = false },
@@ -834,14 +766,10 @@ fun CreateMissionDialog(
                   .bouncyScale(saveHabitInteraction)
                   .testTag("btn_confirm_habit_cartel")
               ) {
-                Icon(
-                  imageVector = Icons.Default.Check,
-                  contentDescription = null,
-                  modifier = Modifier.size(18.dp)
-                )
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                  text = "Guardar Hábito",
+                  text = "Guardar hábito",
                   style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                 )
               }

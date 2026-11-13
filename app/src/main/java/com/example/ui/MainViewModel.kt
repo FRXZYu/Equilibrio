@@ -28,7 +28,8 @@ sealed interface AppScreenState {
   data class Report(
     val report: AssessmentReport,
     val selectedDimensionIndex: Int? = null,
-    val filter: ReportFilter = ReportFilter.ALL
+    val filter: ReportFilter = ReportFilter.ALL,
+    val isProfileCompleted: Boolean = false
   ) : AppScreenState
 
   data class Loading(
@@ -66,6 +67,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   )
   val uiState: StateFlow<AppScreenState> = _uiState.asStateFlow()
 
+  private val _selectedHomeTab = MutableStateFlow(2)
+  val selectedHomeTab: StateFlow<Int> = _selectedHomeTab.asStateFlow()
+
   // Track profile in progress
   private var pendingName: String = ""
   private var pendingPhotoUri: String? = null
@@ -86,7 +90,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       } else {
         _uiState.value = AppScreenState.Report(
           report = report,
-          selectedDimensionIndex = report.lowestDimension.index
+          selectedDimensionIndex = report.lowestDimension.index,
+          isProfileCompleted = false
         )
       }
     } else {
@@ -156,7 +161,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val report = LifeAnalysisEngine.generateReport(scores, previousScores)
     _uiState.value = AppScreenState.Report(
       report = report,
-      selectedDimensionIndex = report.lowestDimension.index
+      selectedDimensionIndex = report.lowestDimension.index,
+      isProfileCompleted = repository.isProfileCompleted()
     )
   }
 
@@ -172,6 +178,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     if (current is AppScreenState.Report) {
       _uiState.update { current.copy(filter = filter) }
     }
+  }
+
+  fun continueFromReport() {
+    if (repository.isProfileCompleted()) {
+      backToHomeFromReport()
+    } else {
+      startProfileSetup()
+    }
+  }
+
+  fun selectHomeTab(tabIndex: Int) {
+    _selectedHomeTab.value = tabIndex.coerceIn(0, 4)
   }
 
   fun startProfileSetup() {
@@ -246,7 +264,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     if (current is AppScreenState.Home) {
       _uiState.value = AppScreenState.Report(
         report = current.report,
-        selectedDimensionIndex = current.report.lowestDimension.index
+        selectedDimensionIndex = current.report.lowestDimension.index,
+        isProfileCompleted = repository.isProfileCompleted()
       )
     }
   }
@@ -257,7 +276,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val report = LifeAnalysisEngine.generateReport(currentScores, previousScores)
     _uiState.value = AppScreenState.Report(
       report = report,
-      selectedDimensionIndex = report.lowestDimension.index
+      selectedDimensionIndex = report.lowestDimension.index,
+      isProfileCompleted = repository.isProfileCompleted()
     )
   }
 

@@ -141,7 +141,7 @@ fun TransitionScreen(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-          text = "Analizando armonía, debilidades prioritarias y plan de acción...",
+          text = "Preparando tu mapa de equilibrio y acciones diarias...",
           style = MaterialTheme.typography.bodyLarge,
           color = TextSecondaryLight,
           textAlign = TextAlign.Center

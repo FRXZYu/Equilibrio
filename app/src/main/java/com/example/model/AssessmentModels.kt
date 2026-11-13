@@ -2,7 +2,7 @@ package com.example.model
 
 enum class ReportFilter {
   ALL,
-  WEAKNESSES,
+  TO_NURTURE,
   STRENGTHS
 }
 
@@ -13,10 +13,10 @@ enum class HexagonViewMode {
 }
 
 enum class ScoreTier(val label: String, val badgeColorHex: Long) {
-  CRITICAL("Crítico · Atención urgente", 0xFFEF4444),
-  DEVELOPING("En desarrollo · Fricción", 0xFFF59E0B),
-  SOLID("Sólido · Buen balance", 0xFF10B981),
-  EXCEPTIONAL("Excepcional · Fortaleza clave", 0xFF6366F1);
+  CRITICAL("Espacio para cuidar", 0xFFD97706),
+  DEVELOPING("En construcción", 0xFF0284C7),
+  SOLID("Base estable", 0xFF059669),
+  EXCEPTIONAL("Fortaleza serena", 0xFF4F46E5);
 
   companion object {
     fun fromScore(score: Int): ScoreTier = when (score) {
@@ -65,6 +65,6 @@ data class AssessmentReport(
   val wisdomAuthor: String,
   val patternInsights: List<PatternInsight>,
   val diagnostics: List<DimensionDiagnostic>,
-  val weaknessesCount: Int,
+  val areasToNurtureCount: Int,
   val strengthsCount: Int
 )

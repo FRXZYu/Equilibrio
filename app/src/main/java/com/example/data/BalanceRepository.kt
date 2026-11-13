@@ -3,31 +3,73 @@ package com.example.data
 import android.content.Context
 import com.example.data.db.AppDatabase
 import com.example.data.db.CompletionEntity
+import com.example.data.db.DailyPlanEntity
 import com.example.data.db.MissionEntity
 import com.example.domain.CompletionRecord
+import com.example.domain.DailyMissionPlanner
+import com.example.domain.DailyPlanHistoryItem
 import com.example.domain.DayKey
+import com.example.domain.HelpfulnessRating
+import com.example.domain.HelpfulnessSummary
 import com.example.domain.HexagonCalculator
 import com.example.model.AssessmentReport
-import com.example.model.GamificationStats
+import com.example.model.BalanceMission
+import com.example.model.DimensionsProvider
+import com.example.model.MissionsProvider
 import com.example.model.UserProfile
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 fun CompletionEntity.toDomain(): CompletionRecord {
   return CompletionRecord(
     id = id,
     missionId = missionId,
     dimensionIndex = dimensionIndex,
-    expAwarded = expAwarded,
-    date = date
+    date = date,
+    helpfulness = HelpfulnessRating.fromStorage(helpfulRating),
+    reflectionNote = reflectionNote,
+    completedAtMillis = completedAtMillis
+  )
+}
+
+fun MissionEntity.toBalanceMission(): BalanceMission {
+  val dim = DimensionsProvider.dimensions.getOrNull(dimensionIndex) ?: DimensionsProvider.dimensions.first()
+  return BalanceMission(
+    id = id,
+    dimensionIndex = dimensionIndex,
+    dimensionTitle = dim.title,
+    title = title,
+    summary = description,
+    description = description,
+    steps = listOf(
+      "Reserva ${durationLabel.lowercase()} sin prisas para esta acción.",
+      description,
+      "Al terminar, anota cómo te hizo sentir."
+    ),
+    benefit = benefit,
+    durationLabel = durationLabel,
+    durationMinutes = durationMinutes,
+    isPriorityFocus = false,
+    isCustom = true,
+    frequency = frequency,
+    isHabit = isHabit
   )
 }
 
 /**
- * Repositorio unificado que combina la base de datos Room (misiones creadas y completaciones históricas)
- * con el AssessmentRepository existente basado en SharedPreferences (cuestionario y perfil).
+ * Repositorio unificado que combina Room (acciones personalizadas, historial con valoración
+ * de utilidad y plan diario a las 00:00) con AssessmentRepository (cuestionario, enfoque y perfil).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class BalanceRepository(
   context: Context,
   val database: AppDatabase = AppDatabase.getInstance(context),
@@ -37,9 +79,28 @@ class BalanceRepository(
 
   val missionDao = database.missionDao()
   val completionDao = database.completionDao()
+  val dailyPlanDao = database.dailyPlanDao()
+
+  private val planMutex = Mutex()
+  private val _currentDayKey = MutableStateFlow(dayKey.today())
+  val currentDayKey: StateFlow<String> = _currentDayKey.asStateFlow()
+
+  /**
+   * Comprueba si el reloj local cruzó las 00:00 y actualiza el flujo reactivo del día actual.
+   * Retorna true si cambió de día.
+   */
+  fun refreshDayIfNeeded(): Boolean {
+    val today = dayKey.today()
+    return if (_currentDayKey.value != today) {
+      _currentDayKey.value = today
+      true
+    } else {
+      false
+    }
+  }
 
   // ==========================================
-  // Misiones personalizadas (Room)
+  // Misiones y hábitos personalizados (Room)
   // ==========================================
   val customMissions: Flow<List<MissionEntity>> = missionDao.getAllCustomMissions()
 
@@ -52,108 +113,310 @@ class BalanceRepository(
   }
 
   // ==========================================
-  // Completaciones de Misiones (Room)
+  // Áreas de enfoque elegidas y guardadas
+  // ==========================================
+  val chosenFocusDimensions: Flow<Set<Int>> = assessmentRepository.chosenFocusDimensionsFlow
+  val savedMissionIds: Flow<Set<String>> = assessmentRepository.savedMissionIdsFlow
+
+  fun saveFocusDimensions(dimensions: Set<Int>) {
+    assessmentRepository.saveFocusDimensions(dimensions)
+  }
+
+  fun toggleFocusDimension(dimensionIndex: Int): Set<Int> {
+    return assessmentRepository.toggleFocusDimension(dimensionIndex)
+  }
+
+  // ==========================================
+  // Historial completo, últimos 14 días y hoy
   // ==========================================
   val allCompletions: Flow<List<CompletionRecord>> = completionDao.getAllCompletions().map { list ->
     list.map { it.toDomain() }
   }
 
-  /**
-   * Flow de completaciones de los últimos 14 días (incluyendo hoy).
-   */
-  val completionsLast14Days: Flow<List<CompletionRecord>> = allCompletions.map { list ->
+  val completionsLast14Days: Flow<List<CompletionRecord>> = combine(allCompletions, currentDayKey) { list, _ ->
     val validDays = dayKey.getRangeLastDays(14).toSet()
     list.filter { it.date in validDays }
   }
 
-  /**
-   * Flow de los 6 puntajes reales calculados reactivamente con los últimos 14 días.
-   */
-  val realScores: Flow<Map<Int, Int>> = completionsLast14Days.map { completions14d ->
+  val realScores: Flow<Map<Int, Int>> = combine(completionsLast14Days, currentDayKey) { completions14d, _ ->
     HexagonCalculator.calculateRealScores(completions14d, dayKey)
   }
 
-  /**
-   * Flow de los 6 puntajes reales en precisión flotante para animaciones suaves.
-   */
-  val realScoresFloat: Flow<Map<Int, Float>> = completionsLast14Days.map { completions14d ->
+  val realScoresFloat: Flow<Map<Int, Float>> = combine(completionsLast14Days, currentDayKey) { completions14d, _ ->
     HexagonCalculator.calculateRealScoresFloat(completions14d, dayKey)
   }
 
-  /**
-   * Flow de EXP acumulado por dimensión (0..5) en los últimos 14 días.
-   */
-  val expByDimension14d: Flow<Map<Int, Int>> = completionsLast14Days.map { completions14d ->
-    HexagonCalculator.calculateExpByDimension14d(completions14d, dayKey)
+  val actionsByDimension14d: Flow<Map<Int, Int>> = combine(completionsLast14Days, currentDayKey) { completions14d, _ ->
+    HexagonCalculator.calculateActionsByDimension14d(completions14d, dayKey)
   }
 
-  /**
-   * Flow de los IDs de misiones completadas en el día de hoy.
-   */
-  val todayCompletedMissionIds: Flow<Set<String>> = completionDao.getCompletionsForDate(dayKey.today()).map { list ->
+  val helpfulnessSummary: Flow<HelpfulnessSummary> = allCompletions.map { completions ->
+    HexagonCalculator.calculateHelpfulnessSummary(completions)
+  }
+
+  val todayCompletions: Flow<List<CompletionRecord>> = currentDayKey.flatMapLatest { date ->
+    completionDao.getCompletionsForDate(date).map { list -> list.map { it.toDomain() } }
+  }
+
+  val todayCompletedMissionIds: Flow<Set<String>> = todayCompletions.map { list ->
     list.map { it.missionId }.toSet()
   }
 
-  /**
-   * Flow reactivo de los IDs de misiones guardadas para más tarde.
-   */
-  val savedMissionIds: Flow<Set<String>> = assessmentRepository.savedMissionIdsFlow
+  val todayDailyPlan: Flow<List<DailyPlanEntity>> = currentDayKey.flatMapLatest { date ->
+    dailyPlanDao.getPlanForDate(date)
+  }
 
-  /**
-   * Flow reactivo de UserProfile con nivel, EXP, misiones y racha derivados 100% de Room.
-   */
-  val userProfileFlow: Flow<UserProfile> = allCompletions.map { completions ->
-    val baseProfile = assessmentRepository.loadProfile()
-    val today = dayKey.today()
-
-    val totalExp = HexagonCalculator.calculateTotalExp(completions)
-    val level = HexagonCalculator.calculateLevel(totalExp)
-    val rank = HexagonCalculator.calculateRank(level)
-    val expToday = completions.filter { it.date == today }.sumOf { it.expAwarded }
-    val completedCount = completions.size
+  val userProfileFlow: Flow<UserProfile> = combine(
+    allCompletions,
+    assessmentRepository.baseProfileFlow,
+    currentDayKey
+  ) { completions, baseProfile, _ ->
+    val activeDays = HexagonCalculator.calculateActiveDaysLast14(completions, dayKey)
     val streak = HexagonCalculator.calculateStreak(completions, dayKey)
-
     baseProfile.copy(
-      level = level,
-      rank = rank,
-      exp = totalExp,
-      expToday = expToday,
-      completedMissions = completedCount,
+      completedActionsTotal = completions.size,
+      activeDaysRecent = activeDays,
       activeStreakDays = streak
     )
   }
 
+  // ==========================================
+  // Plan diario automático a las 00:00
+  // ==========================================
+
+  private suspend fun buildFullCatalog(perceivedScores: Map<Int, Int>): List<BalanceMission> {
+    val focus = assessmentRepository.chosenFocusDimensionsFlow.value
+    val base = MissionsProvider.generateMissionsForUser(perceivedScores, focus)
+    val custom = missionDao.getAllCustomMissions().first().map { it.toBalanceMission() }
+    return (custom + base).distinctBy { it.id }
+  }
+
   /**
-   * Marca o desmarca una misión para la fecha indicada (por defecto hoy).
-   * Respeta el límite anti-abuso de 150 EXP diarios al marcar, pero igual registra la misión y actualiza racha.
-   * Al desmarcarla, se elimina la fila en Room.
-   * Retorna true si fue marcada como completada, o false si fue desmarcada.
+   * Garantiza que exista un plan personalizado de hasta 3 acciones concretas para la fecha actual.
+   * Si cambió de día (00:00 hora local) o aún no hay plan hoy, genera uno evitando repeticiones.
    */
+  suspend fun ensureDailyPlanForToday(perceivedScores: Map<Int, Int>): List<DailyPlanEntity> {
+    refreshDayIfNeeded()
+    val today = dayKey.today()
+    return planMutex.withLock {
+      val existing = dailyPlanDao.getPlanForDateOnce(today)
+      val catalog = buildFullCatalog(perceivedScores)
+      val catalogIds = catalog.map { it.id }.toSet()
+      val validExisting = existing.filter { it.missionId in catalogIds }
+
+      if (validExisting.isNotEmpty() && validExisting.size == existing.size) {
+        return@withLock validExisting
+      }
+
+      val focusDims = assessmentRepository.chosenFocusDimensionsFlow.value
+      val savedIds = assessmentRepository.savedMissionIdsFlow.value
+      val recentDays = dayKey.getRangeLastDays(14)
+      val recentCompletions = completionDao.getCompletionsForDates(recentDays).first().map { it.toDomain() }
+      val real = HexagonCalculator.calculateRealScores(recentCompletions, dayKey)
+
+      val recentPlanDays = dayKey.getRangeLastDays(DailyMissionPlanner.OFFERED_COOLDOWN_DAYS + 1)
+      val planHistory = dailyPlanDao.getPlansInDatesOnce(recentPlanDays).map {
+        DailyPlanHistoryItem(date = it.date, missionId = it.missionId, slotIndex = it.slotIndex)
+      }
+
+      val planned = DailyMissionPlanner.planDailyMissions(
+        todayKey = today,
+        catalog = catalog.map { it.toCandidate() },
+        chosenFocusDimensions = focusDims,
+        perceivedScores = perceivedScores,
+        realScores = real,
+        recentCompletions = recentCompletions,
+        recentPlanHistory = planHistory,
+        savedMissionIds = savedIds,
+        dayKey = dayKey
+      )
+
+      val entities = planned.mapIndexed { idx, candidate ->
+        DailyPlanEntity(
+          date = today,
+          slotIndex = idx,
+          missionId = candidate.id,
+          dimensionIndex = candidate.dimensionIndex,
+          wasSwapped = false
+        )
+      }
+      dailyPlanDao.deletePlanForDate(today)
+      if (entities.isNotEmpty()) {
+        dailyPlanDao.insertPlanEntries(entities)
+      }
+      entities
+    }
+  }
+
+  /**
+   * Regenera las acciones no completadas de hoy cuando la persona cambia sus áreas de enfoque.
+   */
+  suspend fun replanTodayForFocusChange(perceivedScores: Map<Int, Int>): List<DailyPlanEntity> {
+    refreshDayIfNeeded()
+    val today = dayKey.today()
+    return planMutex.withLock {
+      val existing = dailyPlanDao.getPlanForDateOnce(today)
+      val todayCompleted = completionDao.getCompletionsForDate(today).first().map { it.missionId }.toSet()
+      val keptCompleted = existing.filter { it.missionId in todayCompleted }
+
+      val catalog = buildFullCatalog(perceivedScores)
+      val focusDims = assessmentRepository.chosenFocusDimensionsFlow.value
+      val savedIds = assessmentRepository.savedMissionIdsFlow.value
+      val recentDays = dayKey.getRangeLastDays(14)
+      val recentCompletions = completionDao.getCompletionsForDates(recentDays).first().map { it.toDomain() }
+      val real = HexagonCalculator.calculateRealScores(recentCompletions, dayKey)
+      val recentPlanDays = dayKey.getRangeLastDays(DailyMissionPlanner.OFFERED_COOLDOWN_DAYS + 1)
+      val planHistory = dailyPlanDao.getPlansInDatesOnce(recentPlanDays).map {
+        DailyPlanHistoryItem(date = it.date, missionId = it.missionId, slotIndex = it.slotIndex)
+      }
+
+      val availableCatalog = catalog.filter { it.id !in todayCompleted }.map { it.toCandidate() }
+      val fresh = DailyMissionPlanner.planDailyMissions(
+        todayKey = today,
+        catalog = availableCatalog,
+        chosenFocusDimensions = focusDims,
+        perceivedScores = perceivedScores,
+        realScores = real,
+        recentCompletions = recentCompletions,
+        recentPlanHistory = planHistory,
+        savedMissionIds = savedIds,
+        dayKey = dayKey
+      )
+
+      val neededSlots = (0 until DailyMissionPlanner.DAILY_ACTION_COUNT).filter { slot ->
+        keptCompleted.none { it.slotIndex == slot }
+      }
+      val filled = neededSlots.zip(fresh).map { (slot, candidate) ->
+        DailyPlanEntity(
+          date = today,
+          slotIndex = slot,
+          missionId = candidate.id,
+          dimensionIndex = candidate.dimensionIndex,
+          wasSwapped = false
+        )
+      }
+      val merged = (keptCompleted + filled).sortedBy { it.slotIndex }
+      dailyPlanDao.deletePlanForDate(today)
+      if (merged.isNotEmpty()) {
+        dailyPlanDao.insertPlanEntries(merged)
+      }
+      merged
+    }
+  }
+
+  /**
+   * Permite cambiar suavemente una acción del plan de hoy por otra alternativa realista sin penalización.
+   */
+  suspend fun swapDailyMission(
+    slotIndex: Int,
+    perceivedScores: Map<Int, Int>
+  ): DailyPlanEntity? {
+    refreshDayIfNeeded()
+    val today = dayKey.today()
+    return planMutex.withLock {
+      val currentPlan = dailyPlanDao.getPlanForDateOnce(today)
+      val target = currentPlan.firstOrNull { it.slotIndex == slotIndex } ?: return@withLock null
+      val catalog = buildFullCatalog(perceivedScores)
+      val currentCandidate = catalog.firstOrNull { it.id == target.missionId }?.toCandidate()
+        ?: com.example.domain.MissionCandidate(
+          id = target.missionId,
+          dimensionIndex = target.dimensionIndex,
+          durationMinutes = 10
+        )
+
+      val recentDays = dayKey.getRangeLastDays(14)
+      val recentCompletions = completionDao.getCompletionsForDates(recentDays).first().map { it.toDomain() }
+      val recentPlanDays = dayKey.getRangeLastDays(DailyMissionPlanner.OFFERED_COOLDOWN_DAYS + 1)
+      val planHistory = dailyPlanDao.getPlansInDatesOnce(recentPlanDays).map {
+        DailyPlanHistoryItem(date = it.date, missionId = it.missionId, slotIndex = it.slotIndex)
+      }
+
+      val replacement = DailyMissionPlanner.pickReplacementMission(
+        todayKey = today,
+        currentDayMissionIds = currentPlan.map { it.missionId }.toSet(),
+        replacingMission = currentCandidate,
+        catalog = catalog.map { it.toCandidate() },
+        chosenFocusDimensions = assessmentRepository.chosenFocusDimensionsFlow.value,
+        recentCompletions = recentCompletions,
+        recentPlanHistory = planHistory,
+        dayKey = dayKey
+      ) ?: return@withLock null
+
+      dailyPlanDao.updatePlanSlot(
+        date = today,
+        slotIndex = slotIndex,
+        newMissionId = replacement.id,
+        newDimensionIndex = replacement.dimensionIndex
+      )
+      DailyPlanEntity(
+        date = today,
+        slotIndex = slotIndex,
+        missionId = replacement.id,
+        dimensionIndex = replacement.dimensionIndex,
+        wasSwapped = true
+      )
+    }
+  }
+
+  // ==========================================
+  // Registro y revisión de utilidad en Room
+  // ==========================================
+
   suspend fun toggleMissionCompletion(
     missionId: String,
     dimensionIndex: Int,
-    expReward: Int,
     date: String = dayKey.today()
   ): Boolean {
+    refreshDayIfNeeded()
     val existing = completionDao.findCompletion(missionId, date)
     return if (existing != null) {
       completionDao.deleteCompletion(missionId, date)
       false
     } else {
-      val expAlreadyToday = completionDao.getCompletionsForDate(date).first().sumOf { it.expAwarded }
-      val remainingCap = (GamificationStats.DAILY_EXP_CAP - expAlreadyToday).coerceAtLeast(0)
-      val awarded = minOf(expReward.coerceAtLeast(0), remainingCap)
-
       completionDao.insertCompletion(
         CompletionEntity(
           missionId = missionId,
           dimensionIndex = dimensionIndex,
-          expAwarded = awarded,
-          date = date
+          date = date,
+          helpfulRating = null,
+          reflectionNote = "",
+          completedAtMillis = dayKey.currentMillis()
         )
       )
       assessmentRepository.removeSavedMission(missionId)
       true
+    }
+  }
+
+  suspend fun saveReflectionFeedback(
+    missionId: String,
+    dimensionIndex: Int,
+    rating: HelpfulnessRating?,
+    reflectionNote: String,
+    date: String = dayKey.today()
+  ) {
+    refreshDayIfNeeded()
+    val cleanNote = reflectionNote.trim()
+    val existing = completionDao.findCompletion(missionId, date)
+    if (existing != null) {
+      completionDao.updateCompletionFeedback(
+        missionId = missionId,
+        date = date,
+        helpfulRating = rating?.name,
+        reflectionNote = cleanNote
+      )
+    } else {
+      completionDao.insertCompletion(
+        CompletionEntity(
+          missionId = missionId,
+          dimensionIndex = dimensionIndex,
+          date = date,
+          helpfulRating = rating?.name,
+          reflectionNote = cleanNote,
+          completedAtMillis = dayKey.currentMillis()
+        )
+      )
+      assessmentRepository.removeSavedMission(missionId)
     }
   }
 
@@ -164,21 +427,24 @@ class BalanceRepository(
   suspend fun insertCompletion(
     missionId: String,
     dimensionIndex: Int,
-    expAwarded: Int,
-    date: String = dayKey.today()
+    date: String = dayKey.today(),
+    rating: HelpfulnessRating? = null,
+    reflectionNote: String = ""
   ): Long {
     return completionDao.insertCompletion(
       CompletionEntity(
         missionId = missionId,
         dimensionIndex = dimensionIndex,
-        expAwarded = expAwarded,
-        date = date
+        date = date,
+        helpfulRating = rating?.name,
+        reflectionNote = reflectionNote.trim(),
+        completedAtMillis = dayKey.currentMillis()
       )
     )
   }
 
   // ==========================================
-  // Métodos heredados del AssessmentRepository
+  // Métodos heredados de AssessmentRepository
   // ==========================================
   fun hasCompletedAssessment(): Boolean = assessmentRepository.hasCompletedAssessment()
   fun hasPreviousAssessment(): Boolean = assessmentRepository.hasPreviousAssessment()

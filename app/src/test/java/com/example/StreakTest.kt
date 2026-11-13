@@ -9,96 +9,72 @@ import java.util.Calendar
 
 class StreakTest {
 
-  private var currentTestMillis = 1762948800000L // Jueves 12 de Noviembre 2026
-  private val testDayKey = DayKey { currentTestMillis }
-
-  @Test
-  fun testStreakSinDatos() {
-    val completions = emptyList<CompletionRecord>()
-    val streak = HexagonCalculator.calculateStreak(completions, testDayKey)
-    assertEquals("Sin datos la racha debe ser 0", 0, streak)
+  private fun fixedDayKey(year: Int, month: Int, day: Int, hour: Int = 12): DayKey {
+    val cal = Calendar.getInstance().apply {
+      set(Calendar.YEAR, year)
+      set(Calendar.MONTH, month)
+      set(Calendar.DAY_OF_MONTH, day)
+      set(Calendar.HOUR_OF_DAY, hour)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    val fixedMillis = cal.timeInMillis
+    return DayKey { fixedMillis }
   }
 
   @Test
-  fun testRachaDe3DiasTerminandoHoy() {
-    val today = testDayKey.today()
-    val yesterday = testDayKey.yesterday()
-    val twoDaysAgo = testDayKey.daysAgo(2)
+  fun testEmptyCompletionsReturnsZero() {
+    val dayKey = fixedDayKey(2026, Calendar.NOVEMBER, 12)
+    assertEquals(0, HexagonCalculator.calculateStreak(emptyList(), dayKey))
+  }
+
+  @Test
+  fun testStreakIncludesTodayAndConsecutiveDays() {
+    val dayKey = fixedDayKey(2026, Calendar.NOVEMBER, 12)
+    val completions = listOf(
+      CompletionRecord(missionId = "m1", dimensionIndex = 0, date = dayKey.today()),
+      CompletionRecord(missionId = "m2", dimensionIndex = 1, date = dayKey.today()),
+      CompletionRecord(missionId = "m3", dimensionIndex = 2, date = dayKey.yesterday()),
+      CompletionRecord(missionId = "m4", dimensionIndex = 3, date = dayKey.daysAgo(2))
+    )
+    assertEquals(3, HexagonCalculator.calculateStreak(completions, dayKey))
+    assertEquals(3, HexagonCalculator.calculateActiveDaysLast14(completions, dayKey))
+  }
+
+  @Test
+  fun testStreakPreservedWhenTodayHasNoCompletionYetButYesterdayDoes() {
+    val dayKey = fixedDayKey(2026, Calendar.NOVEMBER, 12)
+    val completions = listOf(
+      CompletionRecord(missionId = "m1", dimensionIndex = 0, date = dayKey.yesterday()),
+      CompletionRecord(missionId = "m2", dimensionIndex = 2, date = dayKey.daysAgo(2)),
+      CompletionRecord(missionId = "m3", dimensionIndex = 4, date = dayKey.daysAgo(3))
+    )
+    assertEquals(3, HexagonCalculator.calculateStreak(completions, dayKey))
+  }
+
+  @Test
+  fun testStreakBreaksAfterSkippingYesterdayAndToday() {
+    val dayKey = fixedDayKey(2026, Calendar.NOVEMBER, 12)
+    val completions = listOf(
+      CompletionRecord(missionId = "m1", dimensionIndex = 0, date = dayKey.daysAgo(2)),
+      CompletionRecord(missionId = "m2", dimensionIndex = 2, date = dayKey.daysAgo(3))
+    )
+    assertEquals(0, HexagonCalculator.calculateStreak(completions, dayKey))
+  }
+
+  @Test
+  fun testMidnightRolloverHandledByClock() {
+    val beforeMidnight = fixedDayKey(2026, Calendar.NOVEMBER, 12, hour = 23)
+    val afterMidnight = fixedDayKey(2026, Calendar.NOVEMBER, 13, hour = 0)
 
     val completions = listOf(
-      CompletionRecord(missionId = "m1", dimensionIndex = 0, expAwarded = 30, date = twoDaysAgo),
-      CompletionRecord(missionId = "m2", dimensionIndex = 1, expAwarded = 40, date = yesterday),
-      CompletionRecord(missionId = "m3", dimensionIndex = 2, expAwarded = 35, date = today)
+      CompletionRecord(missionId = "m1", dimensionIndex = 2, date = "2026-11-12"),
+      CompletionRecord(missionId = "m2", dimensionIndex = 1, date = "2026-11-11")
     )
 
-    val streak = HexagonCalculator.calculateStreak(completions, testDayKey)
-    assertEquals("3 días consecutivos completados deben dar racha de 3", 3, streak)
-  }
-
-  @Test
-  fun testHoySinCompletarConAyerCompletado() {
-    // Si hoy aún no se ha completado nada, la racha NO se rompe: se mantiene la racha activa de ayer
-    val yesterday = testDayKey.yesterday()
-    val twoDaysAgo = testDayKey.daysAgo(2)
-
-    val completions = listOf(
-      CompletionRecord(missionId = "m1", dimensionIndex = 0, expAwarded = 30, date = twoDaysAgo),
-      CompletionRecord(missionId = "m2", dimensionIndex = 1, expAwarded = 40, date = yesterday)
-      // Ninguna misión completada hoy
-    )
-
-    val streak = HexagonCalculator.calculateStreak(completions, testDayKey)
-    assertEquals("Racha debe mantenerse en 2 mientras el día de hoy siga en curso", 2, streak)
-  }
-
-  @Test
-  fun testHuecoDeUnDiaRompeRacha() {
-    val today = testDayKey.today()
-    val twoDaysAgo = testDayKey.daysAgo(2)
-    // Ayer NO hubo ninguna completación (hueco)
-
-    val completions = listOf(
-      CompletionRecord(missionId = "m1", dimensionIndex = 0, expAwarded = 30, date = twoDaysAgo),
-      CompletionRecord(missionId = "m3", dimensionIndex = 2, expAwarded = 35, date = today)
-    )
-
-    val streak = HexagonCalculator.calculateStreak(completions, testDayKey)
-    assertEquals("Al haber un hueco ayer, la racha se reinicia en 1 hoy", 1, streak)
-
-    // Si además hoy tampoco se completó, la racha es 0
-    val completionsSinHoy = listOf(
-      CompletionRecord(missionId = "m1", dimensionIndex = 0, expAwarded = 30, date = twoDaysAgo)
-    )
-    val streakSinHoy = HexagonCalculator.calculateStreak(completionsSinHoy, testDayKey)
-    assertEquals("Sin completaciones hoy ni ayer, la racha es 0", 0, streakSinHoy)
-  }
-
-  @Test
-  fun testMedianocheYCambioDeDia() {
-    var simTime = 1762948800000L // Día D
-    val dynamicClock = DayKey { simTime }
-
-    val dia1 = dynamicClock.today()
-    val completions = mutableListOf(
-      CompletionRecord(missionId = "m1", dimensionIndex = 0, expAwarded = 30, date = dia1)
-    )
-
-    // Al final del Día D, racha es 1
-    assertEquals(1, HexagonCalculator.calculateStreak(completions, dynamicClock))
-
-    // Pasa la medianoche: avanzamos el reloj exactamente 24 horas (Día D + 1)
-    simTime += 24 * 60 * 60 * 1000L
-
-    // En el nuevo día (mañana), el usuario aún no completa misiones, pero la racha de ayer se mantiene viva
-    assertEquals("Al pasar medianoche, la racha de ayer no se rompe durante el nuevo día", 1, HexagonCalculator.calculateStreak(completions, dynamicClock))
-
-    // El usuario completa una misión en el nuevo día
-    val dia2 = dynamicClock.today()
-    completions.add(
-      CompletionRecord(missionId = "m2", dimensionIndex = 1, expAwarded = 40, date = dia2)
-    )
-
-    // La racha sube a 2
-    assertEquals(2, HexagonCalculator.calculateStreak(completions, dynamicClock))
+    assertEquals(2, HexagonCalculator.calculateStreak(completions, beforeMidnight))
+    // Al pasar las 00:00 del día 13, la constancia de ayer (12) y anteayer (11) sigue intacta
+    assertEquals(2, HexagonCalculator.calculateStreak(completions, afterMidnight))
   }
 }
