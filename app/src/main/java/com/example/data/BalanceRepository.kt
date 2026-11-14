@@ -15,6 +15,7 @@ import com.example.domain.HexagonCalculator
 import com.example.model.AssessmentReport
 import com.example.model.BalanceMission
 import com.example.model.DimensionsProvider
+import com.example.model.GamificationStats
 import com.example.model.MissionsProvider
 import com.example.model.UserProfile
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -37,31 +38,8 @@ fun CompletionEntity.toDomain(): CompletionRecord {
     date = date,
     helpfulness = HelpfulnessRating.fromStorage(helpfulRating),
     reflectionNote = reflectionNote,
-    completedAtMillis = completedAtMillis
-  )
-}
-
-fun MissionEntity.toBalanceMission(): BalanceMission {
-  val dim = DimensionsProvider.dimensions.getOrNull(dimensionIndex) ?: DimensionsProvider.dimensions.first()
-  return BalanceMission(
-    id = id,
-    dimensionIndex = dimensionIndex,
-    dimensionTitle = dim.title,
-    title = title,
-    summary = description,
-    description = description,
-    steps = listOf(
-      "Reserva ${durationLabel.lowercase()} sin prisas para esta acción.",
-      description,
-      "Al terminar, anota cómo te hizo sentir."
-    ),
-    benefit = benefit,
-    durationLabel = durationLabel,
-    durationMinutes = durationMinutes,
-    isPriorityFocus = false,
-    isCustom = true,
-    frequency = frequency,
-    isHabit = isHabit
+    completedAtMillis = completedAtMillis,
+    expAwarded = expAwarded
   )
 }
 
@@ -150,6 +128,10 @@ class BalanceRepository(
     HexagonCalculator.calculateActionsByDimension14d(completions14d, dayKey)
   }
 
+  val expByDimension14d: Flow<Map<Int, Int>> = combine(completionsLast14Days, currentDayKey) { completions14d, _ ->
+    HexagonCalculator.calculateExpByDimension14d(completions14d, dayKey)
+  }
+
   val helpfulnessSummary: Flow<HelpfulnessSummary> = allCompletions.map { completions ->
     HexagonCalculator.calculateHelpfulnessSummary(completions)
   }
@@ -170,13 +152,21 @@ class BalanceRepository(
     allCompletions,
     assessmentRepository.baseProfileFlow,
     currentDayKey
-  ) { completions, baseProfile, _ ->
+  ) { completions, baseProfile, todayDate ->
     val activeDays = HexagonCalculator.calculateActiveDaysLast14(completions, dayKey)
     val streak = HexagonCalculator.calculateStreak(completions, dayKey)
+    val totalExp = HexagonCalculator.calculateTotalExp(completions)
+    val expToday = HexagonCalculator.calculateExpOnDate(completions, todayDate)
+    val stats = GamificationStats(totalExp = totalExp, expToday = expToday)
     baseProfile.copy(
+      level = stats.level,
+      rank = stats.rank,
+      exp = totalExp,
+      expToday = expToday,
+      completedMissions = completions.size,
+      activeStreakDays = streak,
       completedActionsTotal = completions.size,
-      activeDaysRecent = activeDays,
-      activeStreakDays = streak
+      activeDaysRecent = activeDays
     )
   }
 
@@ -365,6 +355,7 @@ class BalanceRepository(
   suspend fun toggleMissionCompletion(
     missionId: String,
     dimensionIndex: Int,
+    expAwarded: Int = 20,
     date: String = dayKey.today()
   ): Boolean {
     refreshDayIfNeeded()
@@ -373,6 +364,9 @@ class BalanceRepository(
       completionDao.deleteCompletion(missionId, date)
       false
     } else {
+      val expToday = completionDao.getCompletionsForDate(date).first().sumOf { it.expAwarded }
+      val remainingCap = (GamificationStats.DAILY_EXP_CAP - expToday).coerceAtLeast(0)
+      val cappedExp = expAwarded.coerceIn(0, remainingCap)
       completionDao.insertCompletion(
         CompletionEntity(
           missionId = missionId,
@@ -380,7 +374,8 @@ class BalanceRepository(
           date = date,
           helpfulRating = null,
           reflectionNote = "",
-          completedAtMillis = dayKey.currentMillis()
+          completedAtMillis = dayKey.currentMillis(),
+          expAwarded = cappedExp
         )
       )
       assessmentRepository.removeSavedMission(missionId)
@@ -393,7 +388,8 @@ class BalanceRepository(
     dimensionIndex: Int,
     rating: HelpfulnessRating?,
     reflectionNote: String,
-    date: String = dayKey.today()
+    date: String = dayKey.today(),
+    expAwarded: Int = 20
   ) {
     refreshDayIfNeeded()
     val cleanNote = reflectionNote.trim()
@@ -406,6 +402,9 @@ class BalanceRepository(
         reflectionNote = cleanNote
       )
     } else {
+      val expToday = completionDao.getCompletionsForDate(date).first().sumOf { it.expAwarded }
+      val remainingCap = (GamificationStats.DAILY_EXP_CAP - expToday).coerceAtLeast(0)
+      val cappedExp = expAwarded.coerceIn(0, remainingCap)
       completionDao.insertCompletion(
         CompletionEntity(
           missionId = missionId,
@@ -413,7 +412,8 @@ class BalanceRepository(
           date = date,
           helpfulRating = rating?.name,
           reflectionNote = cleanNote,
-          completedAtMillis = dayKey.currentMillis()
+          completedAtMillis = dayKey.currentMillis(),
+          expAwarded = cappedExp
         )
       )
       assessmentRepository.removeSavedMission(missionId)
@@ -429,7 +429,8 @@ class BalanceRepository(
     dimensionIndex: Int,
     date: String = dayKey.today(),
     rating: HelpfulnessRating? = null,
-    reflectionNote: String = ""
+    reflectionNote: String = "",
+    expAwarded: Int = 20
   ): Long {
     return completionDao.insertCompletion(
       CompletionEntity(
@@ -438,7 +439,8 @@ class BalanceRepository(
         date = date,
         helpfulRating = rating?.name,
         reflectionNote = reflectionNote.trim(),
-        completedAtMillis = dayKey.currentMillis()
+        completedAtMillis = dayKey.currentMillis(),
+        expAwarded = expAwarded
       )
     )
   }

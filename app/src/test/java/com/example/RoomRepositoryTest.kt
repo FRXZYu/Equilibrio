@@ -224,4 +224,27 @@ class RoomRepositoryTest {
     assertEquals(3, replanned.size)
     assertTrue(replanned.any { it.dimensionIndex == 4 })
   }
+
+  @Test
+  fun testDailyExpCapAndHexagonExpSync() = runBlocking {
+    val date = dayKey.today()
+    // 5 completions at 35 EXP = 175 -> should cap at 150 EXP today
+    for (i in 1..5) {
+      repository.toggleMissionCompletion(
+        missionId = "exp_test_$i",
+        dimensionIndex = 0,
+        expAwarded = 35,
+        date = date
+      )
+    }
+
+    val profile = repository.userProfileFlow.first()
+    assertEquals(150, profile.expToday)
+    assertEquals(150, profile.exp)
+    assertEquals(1, profile.level)
+    assertEquals(5, profile.completedMissions)
+
+    val expByDim = repository.expByDimension14d.first()
+    assertEquals(150, expByDim[0])
+  }
 }

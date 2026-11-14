@@ -24,14 +24,15 @@ object HexagonCalculator {
   /**
    * Meta orientativa de acciones de cuidado realizadas en una dimensión durante 14 días
    * para reflejar consistencia plena (10/10) en el hexágono real.
-   * Valor provisional y sereno: 5 acciones en 2 semanas (~2-3 veces por semana).
    */
   const val DEFAULT_OBJETIVO_ACCIONES = 5
+  const val DEFAULT_OBJETIVO_EXP = 140
 
   /**
    * Mapa de metas orientativas por dimensión (índices 0 a 5).
    */
   val DEFAULT_OBJETIVOS: Map<Int, Int> = (0..5).associateWith { DEFAULT_OBJETIVO_ACCIONES }
+  val DEFAULT_EXP_OBJETIVOS: Map<Int, Int> = (0..5).associateWith { DEFAULT_OBJETIVO_EXP }
 
   /**
    * Calcula los 6 puntajes reales (0..10) a partir de las acciones registradas en los últimos 14 días.
@@ -93,6 +94,31 @@ object HexagonCalculator {
     }
     return counts
   }
+
+  /**
+   * Suma la EXP acumulada por dimensión durante los últimos 14 días.
+   */
+  fun calculateExpByDimension14d(
+    completions: List<CompletionRecord>,
+    dayKey: DayKey = DayKey.DEFAULT
+  ): Map<Int, Int> {
+    val validDays = dayKey.getRangeLastDays(14).toSet()
+    val uniqueRecent = completions
+      .filter { it.date in validDays && it.dimensionIndex in 0..5 }
+      .distinctBy { "${it.missionId}_${it.date}" }
+
+    val totals = (0..5).associateWith { 0 }.toMutableMap()
+    for (c in uniqueRecent) {
+      totals[c.dimensionIndex] = (totals[c.dimensionIndex] ?: 0) + c.expAwarded.coerceAtLeast(0)
+    }
+    return totals
+  }
+
+  fun calculateTotalExp(completions: List<CompletionRecord>): Int =
+    completions.sumOf { it.expAwarded.coerceAtLeast(0) }
+
+  fun calculateExpOnDate(completions: List<CompletionRecord>, date: String): Int =
+    completions.filter { it.date == date }.sumOf { it.expAwarded.coerceAtLeast(0) }
 
   /**
    * Días consecutivos con al menos una acción amable de cuidado, terminando hoy o ayer.

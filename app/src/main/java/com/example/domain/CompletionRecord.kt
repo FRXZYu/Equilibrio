@@ -28,5 +28,6 @@ data class CompletionRecord(
   val date: String, // "yyyy-MM-dd" en hora local
   val helpfulness: HelpfulnessRating? = null,
   val reflectionNote: String = "",
-  val completedAtMillis: Long = 0L
+  val completedAtMillis: Long = 0L,
+  val expAwarded: Int = 0
 )

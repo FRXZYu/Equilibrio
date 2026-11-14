@@ -24,5 +24,6 @@ data class CompletionEntity(
   val date: String, // Formato local "yyyy-MM-dd"
   val helpfulRating: String? = null,
   val reflectionNote: String = "",
-  val completedAtMillis: Long = System.currentTimeMillis()
+  val completedAtMillis: Long = System.currentTimeMillis(),
+  val expAwarded: Int = 0
 )

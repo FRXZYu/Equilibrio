@@ -136,9 +136,15 @@ fun MainHomeScreen(
   val realScores by balanceRepository.realScores.collectAsStateWithLifecycle(initialValue = emptyMap())
   val expByDimension14d by balanceRepository.expByDimension14d.collectAsStateWithLifecycle(initialValue = emptyMap())
   val completionsLast14Days by balanceRepository.completionsLast14Days.collectAsStateWithLifecycle(initialValue = emptyList())
+  val actionsByDimension14d by balanceRepository.actionsByDimension14d.collectAsStateWithLifecycle(initialValue = emptyMap())
+  val todayCompletions by balanceRepository.todayCompletions.collectAsStateWithLifecycle(initialValue = emptyList())
   val todayCompletedIds by balanceRepository.todayCompletedMissionIds.collectAsStateWithLifecycle(initialValue = emptySet())
   val savedMissionIds by balanceRepository.savedMissionIds.collectAsStateWithLifecycle(initialValue = emptySet())
   val customMissionsEntities by balanceRepository.customMissions.collectAsStateWithLifecycle(initialValue = emptyList())
+
+  androidx.compose.runtime.LaunchedEffect(Unit) {
+    balanceRepository.refreshDayIfNeeded()
+  }
 
   val liveHarmonyPercentage = remember(realScores, report.scores) {
     HexagonCalculator.calculateLiveHarmonyPercentage(realScores, report.scores)
@@ -158,7 +164,7 @@ fun MainHomeScreen(
 
   // Misiones combinadas (sugeridas por MissionsProvider + personalizadas de Room),
   // sincronizadas con completadas hoy, guardadas y multiplicador 1.5x para áreas débiles.
-  val allMissions = remember(report.scores, realScores, customMissionsEntities, todayCompletedIds, savedMissionIds) {
+  val allMissions = remember(report.scores, realScores, customMissionsEntities, todayCompletedIds, todayCompletions, savedMissionIds) {
     val weakDimensionIndices = DimensionsProvider.dimensions
       .sortedBy { report.scores[it.index] ?: 5 }
       .mapIndexedNotNull { rank, dim ->
@@ -188,6 +194,7 @@ fun MainHomeScreen(
         ),
         benefit = entity.benefit,
         durationLabel = entity.durationLabel,
+        durationMinutes = entity.durationMinutes,
         baseExpReward = entity.expReward,
         isWeaknessFocus = isWeak,
         hasMultiplier = isWeak,
@@ -196,14 +203,19 @@ fun MainHomeScreen(
         isSavedForLater = false,
         isCustom = true,
         difficulty = entity.difficulty,
+        frequency = entity.frequency,
         isHabit = entity.isHabit
       )
     }
 
+    val todayCompletionMap = todayCompletions.associateBy { it.missionId }
     (custom + base).map { m ->
+      val todayRecord = todayCompletionMap[m.id]
       m.copy(
         isCompleted = todayCompletedIds.contains(m.id),
-        isSavedForLater = savedMissionIds.contains(m.id)
+        isSavedForLater = savedMissionIds.contains(m.id),
+        helpfulRating = todayRecord?.helpfulness,
+        reflectionNote = todayRecord?.reflectionNote ?: ""
       )
     }
   }
@@ -566,9 +578,11 @@ fun MainHomeScreen(
               description = newMission.description,
               benefit = newMission.benefit,
               durationLabel = newMission.durationLabel,
+              durationMinutes = newMission.durationMinutes,
+              frequency = newMission.frequency,
+              isHabit = newMission.isHabit,
               expReward = newMission.expReward,
-              difficulty = newMission.difficulty,
-              isHabit = newMission.isHabit
+              difficulty = newMission.difficulty
             )
           )
         }
@@ -580,15 +594,22 @@ fun MainHomeScreen(
 
   // Diálogo de detalle de dimensión al tocar el hexágono
   if (selectedDimensionForDetail != null) {
+    val dimIdx = selectedDimensionForDetail!!
     DimensionDetailDialog(
-      dimensionIndex = selectedDimensionForDetail!!,
+      dimensionIndex = dimIdx,
       report = report,
-      realScore = realScores[selectedDimensionForDetail!!] ?: 0,
+      realScore = realScores[dimIdx] ?: 0,
+      actionsLast14d = actionsByDimension14d[dimIdx] ?: 0,
+      isChosenFocus = dimIdx in syncedProfile.chosenFocusDimensions,
+      onToggleFocus = {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        balanceRepository.toggleFocusDimension(dimIdx)
+      },
       onDismiss = { selectedDimensionForDetail = null }
     )
   }
 
-  // Modal de detalles de la misión (completar o guardar para más tarde)
+  // Modal de detalles de la misión (completar, valorar, desmarcar o guardar)
   if (currentDetailMission != null) {
     MissionDetailModal(
       mission = currentDetailMission,
@@ -601,19 +622,42 @@ fun MainHomeScreen(
         savedMissionIds = savedMissionIds
       ),
       onDismiss = { activeDetailMissionId = null },
-      onComplete = {
+      onMarkCompleted = {
+        val missionId = currentDetailMission.id
+        val dimIndex = currentDetailMission.dimensionIndex
+        val exp = currentDetailMission.expReward
+        scope.launch {
+          balanceRepository.toggleMissionCompletion(
+            missionId = missionId,
+            dimensionIndex = dimIndex,
+            expAwarded = exp
+          )
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+      },
+      onUnmarkCompleted = {
+        val missionId = currentDetailMission.id
+        activeDetailMissionId = null
+        scope.launch {
+          balanceRepository.deleteCompletion(missionId)
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+      },
+      onSaveReflection = { rating, note ->
         val missionId = currentDetailMission.id
         val dimIndex = currentDetailMission.dimensionIndex
         val exp = currentDetailMission.expReward
         activeDetailMissionId = null
         scope.launch {
-          balanceRepository.toggleMissionCompletion(
-            missionId,
-            dimIndex,
-            exp
+          balanceRepository.saveReflectionFeedback(
+            missionId = missionId,
+            dimensionIndex = dimIndex,
+            rating = rating,
+            reflectionNote = note,
+            expAwarded = exp
           )
         }
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
       },
       onSaveForLater = {
         val missionId = currentDetailMission.id

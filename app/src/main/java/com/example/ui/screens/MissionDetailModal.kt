@@ -73,6 +73,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.domain.HelpfulnessRating
 import com.example.model.BalanceMission
 import com.example.model.DimensionsProvider
+import com.example.model.GamificationStats
 import com.example.ui.components.bouncyScale
 import com.example.ui.components.rememberBounceInteractionSource
 import com.example.ui.theme.AccentCharcoal
@@ -89,6 +90,7 @@ import com.example.ui.theme.TextTertiaryLight
 @Composable
 fun MissionDetailModal(
   mission: BalanceMission,
+  stats: GamificationStats = GamificationStats(),
   initialDateLabel: String = "Hoy",
   onDismiss: () -> Unit,
   onMarkCompleted: () -> Unit,
@@ -238,10 +240,10 @@ fun MissionDetailModal(
               color = TextSecondaryLight
             )
 
-            // Duración y fecha
+            // Duración, EXP y frecuencia
             Row(
               modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(10.dp),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
               verticalAlignment = Alignment.CenterVertically
             ) {
               Surface(
@@ -261,11 +263,24 @@ fun MissionDetailModal(
                   )
                   Spacer(modifier = Modifier.width(5.dp))
                   Text(
-                    text = "Tiempo estimado: ${mission.durationLabel}",
+                    text = mission.durationLabel,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = TextPrimaryLight
                   )
                 }
+              }
+
+              Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (mission.hasMultiplier) Color(0xFFFEF3C7) else SurfaceVariantLight,
+                border = BorderStroke(1.dp, if (mission.hasMultiplier) Color(0xFFFDE68A) else BorderLight)
+              ) {
+                Text(
+                  text = if (mission.hasMultiplier) "+${mission.expReward} EXP (1.5x)" else "+${mission.expReward} EXP",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = if (mission.hasMultiplier) Color(0xFF92400E) else TextPrimaryLight,
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
               }
 
               if (mission.isHabit) {
@@ -281,6 +296,22 @@ fun MissionDetailModal(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                   )
                 }
+              }
+            }
+
+            if (stats.isDailyCapReached && !isCompletedNow) {
+              Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = SurfaceVariantLight,
+                border = BorderStroke(1.dp, BorderLight),
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Text(
+                  text = "Alcanzaste el tope de ${GamificationStats.DAILY_EXP_CAP} EXP diarios. Completarla seguirá sumando a tu hexágono y racha.",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = TextSecondaryLight,
+                  modifier = Modifier.padding(12.dp)
+                )
               }
             }
 
@@ -544,7 +575,11 @@ fun MissionDetailModal(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                  text = "Marcar como hecha",
+                  text = if (stats.isDailyCapReached) {
+                    "Completar misión"
+                  } else {
+                    "Completar (+${mission.expReward} EXP)"
+                  },
                   style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
               }

@@ -2,7 +2,6 @@ package com.example.ui.screens
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -10,11 +9,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -38,14 +37,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FormatQuote
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Spa
-import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -73,12 +73,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.example.domain.CompletionRecord
-import com.example.domain.HelpfulnessRating
 import com.example.domain.HexagonCalculator
 import com.example.model.AssessmentReport
 import com.example.model.BalanceMission
 import com.example.model.DimensionsProvider
+import com.example.model.GamificationStats
 import com.example.model.UserProfile
 import com.example.ui.components.DualLayerHexagonRadarChart
 import com.example.ui.components.bouncyScale
@@ -97,28 +96,26 @@ private data class CalmPhrase(
 )
 
 /**
- * Pantalla principal "Hoy": sencilla, serena y enfocada.
- * - Respeta las áreas que la persona eligió cuidar.
- * - Presenta hasta 3 acciones diarias concretas actualizadas cada día a las 00:00 hora local.
- * - Incluye cambio amable sin culpa y revisión rápida "¿Te sirvió esta acción?".
- * - Muestra el hexágono vivo de 2 capas sin métricas punitivas ni puntos EXP.
+ * Pantalla principal "Hoy" (tab central):
+ * Diseño minimalista, sin scroll largo, guiado por frases inspiradoras,
+ * hexágono dinámico de dos capas interactivo y mazo compacto de misión prioritaria.
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun HoySection(
   userProfile: UserProfile,
   report: AssessmentReport,
   realScores: Map<Int, Int>,
   realScoresFloat: Map<Int, Float>,
-  dailyMissions: List<BalanceMission>,
-  todayCompletions: List<CompletionRecord>,
+  todayCompletedIds: Set<String>,
+  allMissions: List<BalanceMission>,
   selectedDimensionForDetail: Int?,
   onSelectDimension: (Int) -> Unit,
-  onOpenFocusPicker: () -> Unit,
+  onToggleCompleteMission: (BalanceMission) -> Unit,
   onViewMissionDetails: (BalanceMission) -> Unit,
-  onSwapDailyMission: (slotIndex: Int) -> Unit,
-  onQuickRateCompletion: (mission: BalanceMission, rating: HelpfulnessRating) -> Unit,
-  onNavigateToProgress: () -> Unit,
-  liveHarmonyPercentage: Int = HexagonCalculator.calculateLiveHarmonyPercentage(realScores, report.scores),
+  liveHarmonyPercentage: Int,
+  onOpenFullReport: () -> Unit,
+  onEditGoal: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   val haptic = LocalHapticFeedback.current
@@ -137,31 +134,46 @@ fun HoySection(
     label = "hoy_animated_harmony"
   )
 
-  val todayCompletionMap = remember(todayCompletions) {
-    todayCompletions.associateBy { it.missionId }
+  // Mazo compacto de hasta 4 acciones sugeridas para hoy (evita scroll infinito)
+  val spotlightMissions = remember(allMissions, priorityDimIndex, todayCompletedIds) {
+    val prioritized = allMissions.sortedWith(
+      compareBy<BalanceMission> { it.isCompleted }
+        .thenByDescending { it.dimensionIndex == priorityDimIndex }
+        .thenByDescending { it.hasMultiplier }
+        .thenByDescending { it.isSavedForLater }
+    )
+    prioritized.take(4)
   }
-  val completedTodayCount = remember(dailyMissions, todayCompletionMap) {
-    dailyMissions.count { it.id in todayCompletionMap }
+
+  var deckIndex by remember { mutableIntStateOf(0) }
+  var slideDirection by remember { mutableIntStateOf(1) }
+  val safeDeckIndex = if (spotlightMissions.isNotEmpty()) {
+    deckIndex.coerceIn(0, spotlightMissions.lastIndex)
+  } else 0
+  val activeMission = spotlightMissions.getOrNull(safeDeckIndex)
+
+  val completedTodayCount = remember(allMissions, todayCompletedIds) {
+    allMissions.count { todayCompletedIds.contains(it.id) }
   }
 
   var phraseIndex by remember { mutableIntStateOf(0) }
   var phraseRefreshCount by remember { mutableIntStateOf(0) }
-  val phrases = remember(report.wisdomQuote, report.wisdomAuthor, priorityDim.title) {
+  val phrases = remember(report.wisdomQuote, report.wisdomAuthor, priorityDim.title, userProfile.monthlyGoal) {
     listOf(
       CalmPhrase(
-        quote = "Tu foco actual: ${priorityDim.title}. Un gesto breve hoy basta para empezar.",
-        author = "Hoy"
+        quote = "Foco sugerido hoy: ${priorityDim.title}. Un paso breve suma a tu hexágono.",
+        author = "Tu equilibrio hoy"
       ),
       CalmPhrase(
         quote = report.wisdomQuote,
         author = report.wisdomAuthor
       ),
       CalmPhrase(
-        quote = "Si una acción se siente pesada hoy, puedes cambiarla por otra más amable.",
-        author = "Ritmo propio"
+        quote = userProfile.monthlyGoal.ifBlank { "Paso a paso se construye la armonía diaria." },
+        author = "Tu meta del mes"
       ),
       CalmPhrase(
-        quote = "Cuidarte no es acumular tareas; es elegir lo que de verdad te hace bien.",
+        quote = "La constancia tranquila vence a cualquier esfuerzo extremo de un solo día.",
         author = "Equilibrio"
       )
     )
@@ -173,168 +185,30 @@ fun HoySection(
       .fillMaxSize()
       .verticalScroll(rememberScrollState())
       .padding(horizontal = 20.dp)
-      .padding(top = 12.dp, bottom = 104.dp),
+      .padding(top = 10.dp, bottom = 104.dp),
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
     Column(
       modifier = Modifier
         .fillMaxWidth()
         .widthIn(max = 600.dp),
-      verticalArrangement = Arrangement.spacedBy(14.dp)
+      verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-      // 1. Encabezado sereno con saludo, racha amable y avatar
-      HoySereneHeader(
+      // 1. Encabezado compacto con saludo, racha/EXP y avatar (tocar edita meta)
+      HoyCompactHeader(
         userProfile = userProfile,
         completedTodayCount = completedTodayCount,
-        totalDailyCount = dailyMissions.size,
-        onOpenProgress = {
+        onEditGoal = {
           haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-          onNavigateToProgress()
+          onEditGoal()
+        },
+        onOpenReport = {
+          haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+          onOpenFullReport()
         }
       )
 
-      // 2. Selector rápido del enfoque elegido por la persona
-      FocusSelectionBanner(
-        chosenFocusDimensions = chosenFocus,
-        suggestedDimensionTitle = priorityDim.title,
-        accentColor = priorityDim.accentColor,
-        onClick = {
-          haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-          onOpenFocusPicker()
-        }
-      )
-
-      // 3. Tus acciones personalizadas para hoy (refrescadas a las 00:00)
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
-          Column {
-            Text(
-              text = "Tus acciones de hoy",
-              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-              color = TextPrimaryLight
-            )
-            Text(
-              text = "Se renuevan cada día a las 00:00 · Sin presión",
-              style = MaterialTheme.typography.labelSmall,
-              color = TextSecondaryLight
-            )
-          }
-
-          Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = SurfaceVariantLight
-          ) {
-            Text(
-              text = "$completedTodayCount/${dailyMissions.size}",
-              style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.Bold,
-                fontFeatureSettings = "tnum"
-              ),
-              color = TextPrimaryLight,
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-            )
-          }
-        }
-
-        dailyMissions.forEachIndexed { slotIndex, mission ->
-          val completion = todayCompletionMap[mission.id]
-          DailyActionCard(
-            mission = mission,
-            isCompletedToday = completion != null,
-            savedRating = completion?.helpfulness,
-            onViewDetails = {
-              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-              onViewMissionDetails(mission)
-            },
-            onSwap = {
-              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-              onSwapDailyMission(slotIndex)
-            },
-            onQuickRate = { rating ->
-              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-              onQuickRateCompletion(mission, rating)
-            }
-          )
-        }
-      }
-
-      // 4. Vista viva del hexágono de dos capas (tocar un vértice abre el detalle)
-      Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = SurfaceCardLight,
-        border = BorderStroke(1.dp, BorderLight),
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-          horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-          ) {
-            Column {
-              Text(
-                text = "Tu mapa de equilibrio",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = TextPrimaryLight
-              )
-              Text(
-                text = if (hasRealData) {
-                  "Toca un vértice para ver cómo vas"
-                } else {
-                  "Tu hexágono real crece con tus pasos de esta semana"
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondaryLight
-              )
-            }
-
-            val progressInteraction = rememberBounceInteractionSource()
-            Surface(
-              onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onNavigateToProgress()
-              },
-              interactionSource = progressInteraction,
-              shape = RoundedCornerShape(12.dp),
-              color = SurfaceVariantLight,
-              modifier = Modifier.bouncyScale(progressInteraction, scaleDown = 0.93f)
-            ) {
-              Text(
-                text = "$animatedHarmony% · Ver más",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = AccentCharcoal,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-              )
-            }
-          }
-
-          Spacer(modifier = Modifier.height(8.dp))
-
-          DualLayerHexagonRadarChart(
-            perceivedScores = report.scores,
-            realScores = realScoresFloat,
-            selectedDimensionIndex = selectedDimensionForDetail,
-            onDimensionSelect = { idx ->
-              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-              onSelectDimension(idx)
-            },
-            chartSize = 200.dp,
-            showLegend = true,
-            showChips = false
-          )
-        }
-      }
-
-      // 5. Tira serena de pensamiento guía
+      // 2. Frase guía interactiva (sin recargar la pantalla)
       CalmPhraseBanner(
         phrase = currentPhrase,
         accentColor = priorityDim.accentColor,
@@ -345,18 +219,124 @@ fun HoySection(
           phraseRefreshCount++
         }
       )
+
+      // 3. Tarjeta del Hexágono Dinámico de 2 capas (vértices táctiles -> DimensionDetailDialog)
+      Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = SurfaceCardLight,
+        border = BorderStroke(1.dp, BorderLight),
+        shadowElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+          horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = "Tu Hexágono en Vivo",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = TextPrimaryLight
+              )
+              Text(
+                text = if (hasRealData) {
+                  "Toca un vértice para ver detalle real vs base"
+                } else {
+                  "Completa misiones para expandir tu huella real"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondaryLight
+              )
+            }
+
+            val reportInteraction = rememberBounceInteractionSource()
+            Surface(
+              onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onOpenFullReport()
+              },
+              interactionSource = reportInteraction,
+              shape = RoundedCornerShape(12.dp),
+              color = SurfaceVariantLight,
+              modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .bouncyScale(reportInteraction, scaleDown = 0.93f)
+                .testTag("btn_hoy_open_report")
+            ) {
+              Text(
+                text = "$animatedHarmony% · Reporte",
+                style = MaterialTheme.typography.labelSmall.copy(
+                  fontWeight = FontWeight.Bold,
+                  fontFeatureSettings = "tnum"
+                ),
+                color = AccentCharcoal,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+              )
+            }
+          }
+
+          Spacer(modifier = Modifier.height(6.dp))
+
+          DualLayerHexagonRadarChart(
+            perceivedScores = report.scores,
+            realScores = realScoresFloat,
+            selectedDimensionIndex = selectedDimensionForDetail,
+            onDimensionSelect = { idx ->
+              haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+              onSelectDimension(idx)
+            },
+            chartSize = 204.dp,
+            showLegend = true,
+            showChips = false
+          )
+        }
+      }
+
+      // 4. Mazo interactivo de Misión del Momento (1 tarjeta a la vez, cero scroll largo)
+      if (activeMission != null) {
+        val isCompleted = todayCompletedIds.contains(activeMission.id)
+        HoySpotlightDeckCard(
+          mission = activeMission,
+          isCompletedToday = isCompleted,
+          positionIndex = safeDeckIndex,
+          totalCount = spotlightMissions.size,
+          slideDirection = slideDirection,
+          onPrevious = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            slideDirection = -1
+            deckIndex = if (safeDeckIndex - 1 < 0) spotlightMissions.lastIndex else safeDeckIndex - 1
+          },
+          onNext = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            slideDirection = 1
+            deckIndex = (safeDeckIndex + 1) % spotlightMissions.size
+          },
+          onViewDetails = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onViewMissionDetails(activeMission)
+          }
+        )
+      }
     }
   }
 }
 
 @Composable
-private fun HoySereneHeader(
+private fun HoyCompactHeader(
   userProfile: UserProfile,
   completedTodayCount: Int,
-  totalDailyCount: Int,
-  onOpenProgress: () -> Unit
+  onEditGoal: () -> Unit,
+  onOpenReport: () -> Unit
 ) {
   val avatarInteraction = rememberBounceInteractionSource()
+  val statsInteraction = rememberBounceInteractionSource()
 
   Row(
     modifier = Modifier.fillMaxWidth(),
@@ -377,16 +357,15 @@ private fun HoySereneHeader(
       )
       Spacer(modifier = Modifier.height(2.dp))
       Text(
-        text = when {
-          totalDailyCount > 0 && completedTodayCount == totalDailyCount ->
-            "Completaste tus pasos de hoy. Descansa tranquilo."
-          completedTodayCount > 0 ->
-            "$completedTodayCount de $totalDailyCount acciones hechas hoy"
-          else ->
-            "Un paso pequeño y realista a la vez"
+        text = if (completedTodayCount > 0) {
+          "$completedTodayCount ${if (completedTodayCount == 1) "misión" else "misiones"} completadas hoy · Nv. ${userProfile.level}"
+        } else {
+          "Nivel ${userProfile.level} (${userProfile.rank}) · Un paso a la vez"
         },
         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-        color = TextSecondaryLight
+        color = TextSecondaryLight,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
       )
     }
 
@@ -395,31 +374,57 @@ private fun HoySereneHeader(
       horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
       Surface(
+        onClick = onOpenReport,
+        interactionSource = statsInteraction,
         shape = RoundedCornerShape(14.dp),
         color = SurfaceCardLight,
-        border = BorderStroke(1.dp, BorderLight)
+        border = BorderStroke(1.dp, BorderLight),
+        modifier = Modifier
+          .minimumInteractiveComponentSize()
+          .bouncyScale(statsInteraction, scaleDown = 0.93f)
+          .testTag("btn_hoy_streak_exp")
       ) {
         Row(
           modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-          verticalAlignment = Alignment.CenterVertically
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
           Icon(
-            imageVector = Icons.Outlined.Spa,
-            contentDescription = "Días cuidándote",
-            tint = if (userProfile.activeStreakDays > 0) Color(0xFF15803D) else TextTertiaryLight,
+            imageVector = Icons.Outlined.LocalFireDepartment,
+            contentDescription = "Racha",
+            tint = if (userProfile.activeStreakDays > 0) Color(0xFFD97706) else TextTertiaryLight,
             modifier = Modifier.size(16.dp)
           )
-          Spacer(modifier = Modifier.width(4.dp))
           Text(
-            text = if (userProfile.activeStreakDays > 0) "${userProfile.activeStreakDays}d" else "Hoy",
+            text = "${userProfile.activeStreakDays}d",
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
             color = TextPrimaryLight
+          )
+          Box(
+            modifier = Modifier
+              .width(1.dp)
+              .height(12.dp)
+              .background(BorderLight)
+          )
+          Icon(
+            imageVector = Icons.Default.Bolt,
+            contentDescription = "EXP de hoy",
+            tint = AccentCharcoal,
+            modifier = Modifier.size(15.dp)
+          )
+          Text(
+            text = "${userProfile.expToday}/${GamificationStats.DAILY_EXP_CAP}",
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontWeight = FontWeight.Bold,
+              fontFeatureSettings = "tnum"
+            ),
+            color = TextSecondaryLight
           )
         }
       }
 
       Surface(
-        onClick = onOpenProgress,
+        onClick = onEditGoal,
         interactionSource = avatarInteraction,
         shape = CircleShape,
         color = SurfaceVariantLight,
@@ -427,13 +432,13 @@ private fun HoySereneHeader(
         modifier = Modifier
           .size(48.dp)
           .bouncyScale(avatarInteraction, scaleDown = 0.90f)
-          .testTag("btn_hoy_avatar_progress")
+          .testTag("btn_hoy_avatar_goal")
       ) {
         Box(contentAlignment = Alignment.Center) {
           if (userProfile.photoUri != null) {
             AsyncImage(
               model = Uri.parse(userProfile.photoUri),
-              contentDescription = "Ver tu progreso",
+              contentDescription = "Editar meta mensual",
               contentScale = ContentScale.Crop,
               modifier = Modifier
                 .fillMaxSize()
@@ -442,7 +447,7 @@ private fun HoySereneHeader(
           } else {
             Icon(
               imageVector = Icons.Filled.Person,
-              contentDescription = "Ver tu progreso",
+              contentDescription = "Editar meta mensual",
               tint = AccentCharcoal,
               modifier = Modifier.size(22.dp)
             )
@@ -454,116 +459,32 @@ private fun HoySereneHeader(
 }
 
 @Composable
-private fun FocusSelectionBanner(
-  chosenFocusDimensions: Set<Int>,
-  suggestedDimensionTitle: String,
-  accentColor: Color,
-  onClick: () -> Unit
-) {
-  val interaction = rememberBounceInteractionSource()
-  val focusLabel = if (chosenFocusDimensions.isNotEmpty()) {
-    chosenFocusDimensions.sorted()
-      .mapNotNull { DimensionsProvider.dimensions.getOrNull(it)?.title }
-      .joinToString(" · ")
-  } else {
-    "Sugerido: $suggestedDimensionTitle"
-  }
-
-  Surface(
-    onClick = onClick,
-    interactionSource = interaction,
-    shape = RoundedCornerShape(16.dp),
-    color = SurfaceCardLight,
-    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.30f)),
-    modifier = Modifier
-      .fillMaxWidth()
-      .minimumInteractiveComponentSize()
-      .bouncyScale(interaction, scaleDown = 0.97f)
-      .testTag("btn_hoy_choose_focus")
-  ) {
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(horizontal = 14.dp, vertical = 11.dp),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.weight(1f)
-      ) {
-        Box(
-          modifier = Modifier
-            .size(30.dp)
-            .clip(CircleShape)
-            .background(accentColor.copy(alpha = 0.14f)),
-          contentAlignment = Alignment.Center
-        ) {
-          Icon(
-            imageVector = Icons.Outlined.Explore,
-            contentDescription = null,
-            tint = accentColor,
-            modifier = Modifier.size(16.dp)
-          )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Column {
-          Text(
-            text = "En qué área quieres avanzar",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondaryLight
-          )
-          Text(
-            text = focusLabel,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-            color = TextPrimaryLight,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-          )
-        }
-      }
-
-      Spacer(modifier = Modifier.width(8.dp))
-
-      Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = SurfaceVariantLight
-      ) {
-        Text(
-          text = "Elegir",
-          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-          color = AccentCharcoal,
-          modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-        )
-      }
-    }
-  }
-}
-
-@Composable
-private fun DailyActionCard(
+private fun HoySpotlightDeckCard(
   mission: BalanceMission,
   isCompletedToday: Boolean,
-  savedRating: HelpfulnessRating?,
-  onViewDetails: () -> Unit,
-  onSwap: () -> Unit,
-  onQuickRate: (HelpfulnessRating) -> Unit
+  positionIndex: Int,
+  totalCount: Int,
+  slideDirection: Int,
+  onPrevious: () -> Unit,
+  onNext: () -> Unit,
+  onViewDetails: () -> Unit
 ) {
   val dim = DimensionsProvider.dimensions.getOrNull(mission.dimensionIndex)
   val accentColor = dim?.accentColor ?: AccentCharcoal
   val cardInteraction = rememberBounceInteractionSource()
-  val ctaInteraction = rememberBounceInteractionSource()
-  val swapInteraction = rememberBounceInteractionSource()
+  val btnInteraction = rememberBounceInteractionSource()
+  val prevInteraction = rememberBounceInteractionSource()
+  val nextInteraction = rememberBounceInteractionSource()
 
   val cardBg by animateColorAsState(
-    targetValue = if (isCompletedToday) Color(0xFFF0FDF4) else SurfaceCardLight,
-    animationSpec = tween(260),
-    label = "daily_card_bg_${mission.id}"
+    targetValue = if (isCompletedToday) Color(0xFFF3F4F6) else SurfaceCardLight,
+    animationSpec = tween(250),
+    label = "hoy_spotlight_bg"
   )
   val borderColor by animateColorAsState(
-    targetValue = if (isCompletedToday) Color(0xFFBBF7D0) else BorderLight,
-    animationSpec = tween(260),
-    label = "daily_card_border_${mission.id}"
+    targetValue = if (isCompletedToday) Color(0xFFD1D5DB) else BorderLight,
+    animationSpec = tween(250),
+    label = "hoy_spotlight_border"
   )
 
   Surface(
@@ -575,101 +496,80 @@ private fun DailyActionCard(
     shadowElevation = if (isCompletedToday) 0.dp else 1.dp,
     modifier = Modifier
       .fillMaxWidth()
-      .bouncyScale(cardInteraction, scaleDown = 0.97f)
-      .testTag("daily_action_card_${mission.id}")
+      .bouncyScale(cardInteraction, scaleDown = 0.98f)
+      .testTag("hoy_spotlight_card_${mission.id}")
   ) {
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(horizontal = 16.dp, vertical = 14.dp)
+        .padding(16.dp)
     ) {
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
       ) {
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = if (isCompletedToday) Color(0xFFDCFCE7) else accentColor.copy(alpha = 0.12f)
-          ) {
-            Text(
-              text = mission.dimensionTitle.uppercase(),
-              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-              color = if (isCompletedToday) Color(0xFF166534) else accentColor,
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-            )
-          }
+        Text(
+          text = "FOCO SUGERIDO",
+          style = MaterialTheme.typography.labelSmall.copy(
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp
+          ),
+          color = TextSecondaryLight
+        )
 
+        if (totalCount > 1) {
           Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-              imageVector = Icons.Outlined.Schedule,
-              contentDescription = null,
-              tint = TextSecondaryLight,
-              modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(3.dp))
-            Text(
-              text = mission.durationLabel,
-              style = MaterialTheme.typography.labelSmall,
-              color = TextSecondaryLight
-            )
-          }
-        }
-
-        if (!isCompletedToday) {
-          Surface(
-            onClick = onSwap,
-            interactionSource = swapInteraction,
-            shape = RoundedCornerShape(10.dp),
-            color = SurfaceVariantLight,
-            modifier = Modifier
-              .minimumInteractiveComponentSize()
-              .bouncyScale(swapInteraction, scaleDown = 0.90f)
-              .testTag("btn_swap_daily_${mission.id}")
-          ) {
-            Row(
-              modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-              verticalAlignment = Alignment.CenterVertically
+            Surface(
+              onClick = onPrevious,
+              interactionSource = prevInteraction,
+              shape = CircleShape,
+              color = SurfaceVariantLight,
+              modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .size(34.dp)
+                .bouncyScale(prevInteraction, scaleDown = 0.88f)
+                .testTag("btn_hoy_mission_prev")
             ) {
-              Icon(
-                imageVector = Icons.Outlined.SwapHoriz,
-                contentDescription = "Cambiar acción",
-                tint = TextSecondaryLight,
-                modifier = Modifier.size(14.dp)
-              )
-              Spacer(modifier = Modifier.width(4.dp))
-              Text(
-                text = "Cambiar",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                color = TextSecondaryLight
-              )
+              Box(contentAlignment = Alignment.Center) {
+                Icon(
+                  imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                  contentDescription = "Misión anterior",
+                  tint = TextPrimaryLight,
+                  modifier = Modifier.size(18.dp)
+                )
+              }
             }
-          }
-        } else {
-          Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = Color(0xFFDCFCE7)
-          ) {
-            Row(
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-              verticalAlignment = Alignment.CenterVertically
+
+            Text(
+              text = "${positionIndex + 1}/$totalCount",
+              style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontFeatureSettings = "tnum"
+              ),
+              color = TextSecondaryLight,
+              modifier = Modifier.padding(horizontal = 6.dp)
+            )
+
+            Surface(
+              onClick = onNext,
+              interactionSource = nextInteraction,
+              shape = CircleShape,
+              color = SurfaceVariantLight,
+              modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .size(34.dp)
+                .bouncyScale(nextInteraction, scaleDown = 0.88f)
+                .testTag("btn_hoy_mission_next")
             ) {
-              Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = null,
-                tint = Color(0xFF15803D),
-                modifier = Modifier.size(13.dp)
-              )
-              Spacer(modifier = Modifier.width(4.dp))
-              Text(
-                text = savedRating?.shortLabel ?: "Hecha hoy",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF166534)
-              )
+              Box(contentAlignment = Alignment.Center) {
+                Icon(
+                  imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                  contentDescription = "Siguiente misión",
+                  tint = TextPrimaryLight,
+                  modifier = Modifier.size(18.dp)
+                )
+              }
             }
           }
         }
@@ -677,99 +577,137 @@ private fun DailyActionCard(
 
       Spacer(modifier = Modifier.height(8.dp))
 
-      Text(
-        text = mission.title,
-        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        color = TextPrimaryLight
-      )
-      Spacer(modifier = Modifier.height(3.dp))
-      Text(
-        text = mission.summary.ifEmpty { mission.description },
-        style = MaterialTheme.typography.bodySmall,
-        color = TextSecondaryLight,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-        lineHeight = 18.sp
-      )
-
-      // Revisión rápida en tarjeta tras completar sin haber valorado todavía
-      AnimatedVisibility(
-        visible = isCompletedToday && savedRating == null,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically()
-      ) {
-        Column(modifier = Modifier.padding(top = 10.dp)) {
-          Text(
-            text = "¿Cómo te hizo sentir?",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = Color(0xFF166534)
-          )
-          Spacer(modifier = Modifier.height(6.dp))
+      AnimatedContent(
+        targetState = mission,
+        transitionSpec = {
+          val offset = if (slideDirection >= 0) 40 else -40
+          (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { offset }) togetherWith
+            (fadeOut(tween(140)) + slideOutHorizontally(tween(140)) { -offset / 2 })
+        },
+        label = "hoy_spotlight_mission_slide"
+      ) { item ->
+        Column {
           Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
           ) {
-            HelpfulnessRating.entries.forEach { rating ->
-              val rateInteraction = rememberBounceInteractionSource()
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              color = if (isCompletedToday) Color(0xFFE5E7EB) else accentColor.copy(alpha = 0.12f)
+            ) {
+              Text(
+                text = item.dimensionTitle.uppercase(),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = if (isCompletedToday) Color(0xFF6B7280) else accentColor,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+              )
+            }
+
+            if (isCompletedToday) {
               Surface(
-                onClick = { onQuickRate(rating) },
-                interactionSource = rateInteraction,
-                shape = RoundedCornerShape(10.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
-                modifier = Modifier
-                  .weight(1f)
-                  .minimumInteractiveComponentSize()
-                  .bouncyScale(rateInteraction, scaleDown = 0.93f)
-                  .testTag("quick_rate_${mission.id}_${rating.name.lowercase()}")
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFFE5E7EB)
               ) {
-                Box(
-                  modifier = Modifier.padding(vertical = 8.dp),
-                  contentAlignment = Alignment.Center
+                Row(
+                  modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                  verticalAlignment = Alignment.CenterVertically
                 ) {
+                  Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = Color(0xFF4B5563),
+                    modifier = Modifier.size(12.dp)
+                  )
+                  Spacer(modifier = Modifier.width(3.dp))
                   Text(
-                    text = rating.shortLabel,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = TextPrimaryLight
+                    text = "Completada",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF4B5563)
                   )
                 }
               }
+            } else {
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (item.hasMultiplier) Color(0xFFFEF3C7) else SurfaceVariantLight
+              ) {
+                Text(
+                  text = if (item.hasMultiplier) "+${item.expReward} EXP · 1.5x" else "+${item.expReward} EXP",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = if (item.hasMultiplier) Color(0xFF92400E) else TextPrimaryLight,
+                  modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                )
+              }
             }
           }
+
+          Spacer(modifier = Modifier.height(8.dp))
+
+          Text(
+            text = item.title,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = if (isCompletedToday) Color(0xFF6B7280) else TextPrimaryLight
+          )
+
+          Spacer(modifier = Modifier.height(3.dp))
+
+          Text(
+            text = item.summary.ifEmpty { item.description },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isCompletedToday) Color(0xFF9CA3AF) else TextSecondaryLight,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 18.sp
+          )
         }
       }
 
-      if (!isCompletedToday || savedRating != null) {
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.End
+      Spacer(modifier = Modifier.height(12.dp))
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.Outlined.Schedule,
+            contentDescription = null,
+            tint = TextTertiaryLight,
+            modifier = Modifier.size(14.dp)
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+          Text(
+            text = "${mission.durationLabel} · ${mission.difficulty}",
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSecondaryLight
+          )
+        }
+
+        Button(
+          onClick = onViewDetails,
+          interactionSource = btnInteraction,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isCompletedToday) Color(0xFFE5E7EB) else AccentCharcoal,
+            contentColor = if (isCompletedToday) Color(0xFF4B5563) else Color.White
+          ),
+          shape = RoundedCornerShape(12.dp),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+          modifier = Modifier
+            .height(40.dp)
+            .bouncyScale(btnInteraction, scaleDown = 0.94f)
+            .testTag("btn_hoy_details_${mission.id}")
         ) {
-          Button(
-            onClick = onViewDetails,
-            interactionSource = ctaInteraction,
-            colors = ButtonDefaults.buttonColors(
-              containerColor = if (isCompletedToday) Color(0xFFDCFCE7) else AccentCharcoal,
-              contentColor = if (isCompletedToday) Color(0xFF166534) else Color.White
-            ),
-            shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            modifier = Modifier
-              .height(40.dp)
-              .bouncyScale(ctaInteraction, scaleDown = 0.94f)
-              .testTag("btn_daily_details_${mission.id}")
-          ) {
-            Text(
-              text = if (isCompletedToday) "Revisar nota" else "Ver pasos",
-              style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Icon(
-              imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-              contentDescription = null,
-              modifier = Modifier.size(15.dp)
-            )
-          }
+          Text(
+            text = "Ver detalles",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+          )
+          Spacer(modifier = Modifier.width(5.dp))
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            modifier = Modifier.size(15.dp)
+          )
         }
       }
     }

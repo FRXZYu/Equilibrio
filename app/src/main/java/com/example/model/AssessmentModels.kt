@@ -2,8 +2,9 @@ package com.example.model
 
 enum class ReportFilter {
   ALL,
-  TO_NURTURE,
-  STRENGTHS
+  WEAKNESSES,
+  STRENGTHS,
+  TO_NURTURE
 }
 
 enum class HexagonViewMode {
@@ -66,5 +67,6 @@ data class AssessmentReport(
   val patternInsights: List<PatternInsight>,
   val diagnostics: List<DimensionDiagnostic>,
   val areasToNurtureCount: Int,
-  val strengthsCount: Int
+  val strengthsCount: Int,
+  val weaknessesCount: Int = areasToNurtureCount
 )

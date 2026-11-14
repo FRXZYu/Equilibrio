@@ -136,7 +136,7 @@ fun ReportScreen(
   val filteredDiagnostics = remember(report.diagnostics, filter) {
     when (filter) {
       ReportFilter.ALL -> report.diagnostics
-      ReportFilter.WEAKNESSES -> report.diagnostics.filter { it.score <= 6 }
+      ReportFilter.WEAKNESSES, ReportFilter.TO_NURTURE -> report.diagnostics.filter { it.score <= 6 }
       ReportFilter.STRENGTHS -> report.diagnostics.filter { it.score >= 7 }
     }
   }

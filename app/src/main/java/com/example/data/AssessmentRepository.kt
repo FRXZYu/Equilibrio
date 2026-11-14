@@ -34,6 +34,8 @@ class AssessmentRepository(context: Context) {
 
     private const val KEY_USER_NAME = "key_user_name"
     private const val KEY_USER_PHOTO = "key_user_photo"
+    private const val KEY_USER_ZODIAC = "key_user_zodiac"
+    private const val KEY_USER_ZODIAC_SYMBOL = "key_user_zodiac_symbol"
     private const val KEY_USER_GOAL = "key_user_goal"
     private const val KEY_PROFILE_COMPLETED = "key_profile_completed"
     private const val DEFAULT_GOAL = "Cuidarme con pasos pequeños y realistas"
@@ -180,6 +182,8 @@ class AssessmentRepository(context: Context) {
     prefs.edit()
       .putString(KEY_USER_NAME, profile.name)
       .putString(KEY_USER_PHOTO, profile.photoUri)
+      .putString(KEY_USER_ZODIAC, profile.zodiacSign.ifBlank { "Aries" })
+      .putString(KEY_USER_ZODIAC_SYMBOL, profile.zodiacSymbol.ifBlank { "♈" })
       .putString(KEY_USER_GOAL, profile.monthlyGoal.ifBlank { DEFAULT_GOAL })
       .putString(KEY_FOCUS_DIMENSIONS, cleanFocus.sorted().joinToString(","))
       .putBoolean(KEY_PROFILE_COMPLETED, true)
@@ -197,11 +201,15 @@ class AssessmentRepository(context: Context) {
   private fun readBaseProfile(): UserProfile {
     val name = prefs.getString(KEY_USER_NAME, "") ?: ""
     val photo = prefs.getString(KEY_USER_PHOTO, null)
+    val zodiac = prefs.getString(KEY_USER_ZODIAC, "Aries") ?: "Aries"
+    val zodiacSymbol = prefs.getString(KEY_USER_ZODIAC_SYMBOL, "♈") ?: "♈"
     val goal = prefs.getString(KEY_USER_GOAL, DEFAULT_GOAL) ?: DEFAULT_GOAL
     val focus = readFocusDimensions()
     return UserProfile(
       name = name,
       photoUri = photo,
+      zodiacSign = zodiac,
+      zodiacSymbol = zodiacSymbol,
       monthlyGoal = goal,
       chosenFocusDimensions = focus
     )

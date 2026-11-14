@@ -64,4 +64,18 @@ class MissionTest {
     assertTrue(candidate.isCustom)
     assertTrue(candidate.isHabit)
   }
+
+  @Test
+  fun testWeaknessFocusHas15xExpBoost() {
+    val scores = mapOf(0 to 3, 1 to 9, 2 to 4, 3 to 8, 4 to 9, 5 to 8)
+    val missions = MissionsProvider.generateMissionsForUser(scores)
+
+    val weakMissions = missions.filter { it.dimensionIndex == 0 }
+    val strongMissions = missions.filter { it.dimensionIndex == 1 }
+
+    assertTrue(weakMissions.all { it.isWeaknessFocus && it.hasMultiplier })
+    assertTrue(weakMissions.all { it.expReward == (it.baseExpReward * 1.5).toInt() })
+    assertTrue(strongMissions.none { it.isWeaknessFocus || it.hasMultiplier })
+    assertTrue(strongMissions.all { it.expReward == it.baseExpReward })
+  }
 }

@@ -24,7 +24,12 @@ data class BalanceMission(
   val habitDays: List<String> = emptyList(),
   val habitEndRule: String = "Nunca",
   val helpfulRating: HelpfulnessRating? = null,
-  val reflectionNote: String = ""
+  val reflectionNote: String = "",
+  val expReward: Int = 30,
+  val baseExpReward: Int = 20,
+  val isWeaknessFocus: Boolean = false,
+  val hasMultiplier: Boolean = false,
+  val difficulty: String = "Media"
 ) {
   fun toCandidate(): MissionCandidate = MissionCandidate(
     id = id,
@@ -52,15 +57,18 @@ object MissionsProvider {
     )
 
     val list = mutableListOf<BalanceMission>()
-    val fallbackFocusIndices = dimensions.sortedBy { scores[it.index] ?: 5 }
-      .take(2)
-      .map { it.index }
+    val weaknessIndices = dimensions.sortedBy { scores[it.index] ?: 5 }
+      .mapIndexedNotNull { rank, dim ->
+        val score = scores[dim.index] ?: 5
+        if (score <= 6 || rank < 2) dim.index else null
+      }
       .toSet()
-    val effectivePriority = if (chosenFocusDimensions.isNotEmpty()) chosenFocusDimensions else fallbackFocusIndices
+    val effectivePriority = if (chosenFocusDimensions.isNotEmpty()) chosenFocusDimensions else weaknessIndices
 
     sortedDims.forEach { dim ->
       val isPriority = dim.index in effectivePriority
-      list.addAll(buildMissionsForDimension(dim, isPriority))
+      val isWeakness = dim.index in weaknessIndices
+      list.addAll(buildMissionsForDimension(dim, isPriority, isWeakness))
     }
 
     return list
@@ -68,12 +76,13 @@ object MissionsProvider {
 
   private fun buildMissionsForDimension(
     dim: LifeDimension,
-    isPriority: Boolean
+    isPriority: Boolean,
+    isWeakness: Boolean
   ): List<BalanceMission> {
     return when (dim.key) {
       DimensionKey.DESCANSO -> listOf(
         mission(
-          id = "desc_1", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "desc_1", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Apagar pantallas 15 min antes de dormir",
           summary = "Deja el teléfono cargando fuera de tu alcance al ir a la cama.",
           description = "Reducir estímulos luminosos y notificaciones justo antes de acostarte ayuda a cerrar el día con menos ruido mental.",
@@ -85,7 +94,7 @@ object MissionsProvider {
           benefit = "Puede facilitar que la mente baje revoluciones antes de dormir."
         ),
         mission(
-          id = "desc_2", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "desc_2", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Vaciar pendientes en papel",
           summary = "Anota 3 cosas para mañana y cierra la libreta.",
           description = "Pasar tus pendientes de la cabeza al papel evita seguir repasándolos por la noche.",
@@ -97,7 +106,7 @@ object MissionsProvider {
           benefit = "Suele aliviar la sensación de tener todo abierto en la mente."
         ),
         mission(
-          id = "desc_3", dim = dim, isPriority = isPriority, durationLabel = "3 min", durationMinutes = 3,
+          id = "desc_3", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "3 min", durationMinutes = 3,
           title = "Pausa sin pantallas a mitad del día",
           summary = "Mira por la ventana o cierra los ojos 3 minutos.",
           description = "Una micropausa breve corta el agotamiento visual y te devuelve al ritmo real.",
@@ -109,7 +118,7 @@ object MissionsProvider {
           benefit = "Ayuda a evitar que el cansancio se acumule sin notarlo."
         ),
         mission(
-          id = "desc_4", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "desc_4", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Bajar la luz al caer la tarde",
           summary = "Usa una lámpara cálida o luz suave por la noche.",
           description = "Una iluminación tenue acompaña la transición natural hacia el descanso.",
@@ -121,7 +130,7 @@ object MissionsProvider {
           benefit = "Acompaña la calma vespertina de manera sencilla."
         ),
         mission(
-          id = "desc_5", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "desc_5", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Respiración lenta antes de dormir",
           summary = "Haz 6 respiraciones profundas exhalando más largo.",
           description = "Alargar la exhalación envía una señal física de calma sin exigir esfuerzo.",
@@ -133,7 +142,7 @@ object MissionsProvider {
           benefit = "Puede ayudarte a soltar tensión física acumulada durante el día."
         ),
         mission(
-          id = "desc_6", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "desc_6", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Desayunar o merendar sin teléfono",
           summary = "Come un momento sin revisar mensajes ni noticias.",
           description = "Comer sin prisa informativa convierte una comida común en un pequeño descanso.",
@@ -148,7 +157,7 @@ object MissionsProvider {
 
       DimensionKey.AUTOESTIMA -> listOf(
         mission(
-          id = "auto_1", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "auto_1", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Anotar un logro pequeño de hoy",
           summary = "Reconoce algo concreto que resolviste o cuidaste hoy.",
           description = "Registrar hechos reales equilibra la tendencia a fijarnos solo en lo pendiente.",
@@ -160,7 +169,7 @@ object MissionsProvider {
           benefit = "Ayuda a construir confianza desde hechos reales, no desde exigencias."
         ),
         mission(
-          id = "auto_2", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "auto_2", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Decir que no a algo secundario",
           summary = "Posterga o declina con amabilidad una tarea no urgente.",
           description = "Cuidar tu energía eligiendo qué sí cabe hoy protege tu paz mental.",
@@ -172,7 +181,7 @@ object MissionsProvider {
           benefit = "Refuerza el respeto por tu tiempo sin necesidad de dar largas explicaciones."
         ),
         mission(
-          id = "auto_3", dim = dim, isPriority = isPriority, durationLabel = "3 min", durationMinutes = 3,
+          id = "auto_3", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "3 min", durationMinutes = 3,
           title = "Hablarte como a alguien cercano",
           summary = "Reformula un pensamiento exigente con un tono más justo.",
           description = "Cuando aparece una crítica dura hacia ti, cambiar el tono reduce la carga innecesaria.",
@@ -184,7 +193,7 @@ object MissionsProvider {
           benefit = "Puede suavizar la presión interna en días difíciles."
         ),
         mission(
-          id = "auto_4", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "auto_4", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Aceptar un cumplido sin restarle valor",
           summary = "Cuando alguien te reconozca algo, responde solo 'gracias'.",
           description = "Evitar justificarte o minimizar lo que haces bien entrena una autoestima más tranquila.",
@@ -196,7 +205,7 @@ object MissionsProvider {
           benefit = "Te ayuda a reconocer tu aporte cotidiano con naturalidad."
         ),
         mission(
-          id = "auto_5", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "auto_5", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Elegir una decisión propia hoy",
           summary = "Haz algo pequeño a tu manera sin pedir validación previa.",
           description = "Tomar microdecisiones confiando en tu criterio fortalece la seguridad cotidiana.",
@@ -208,7 +217,7 @@ object MissionsProvider {
           benefit = "Devuelve protagonismo tranquilo a tu propio criterio."
         ),
         mission(
-          id = "auto_6", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "auto_6", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Pausa de redes si te estás comparando",
           summary = "Cierra redes sociales 15 minutos si notas desgaste.",
           description = "Cortar la comparación automática a tiempo protege tu estado de ánimo.",
@@ -223,7 +232,7 @@ object MissionsProvider {
 
       DimensionKey.EJERCICIO -> listOf(
         mission(
-          id = "ejer_1", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "ejer_1", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Caminar 10 minutos al aire libre",
           summary = "Da una vuelta breve sin prisa ni objetivo de marca.",
           description = "Salir a caminar unos minutos mueve el cuerpo y despeja la cabeza.",
@@ -235,7 +244,7 @@ object MissionsProvider {
           benefit = "Ayuda a activar el cuerpo de manera amable y realista."
         ),
         mission(
-          id = "ejer_2", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "ejer_2", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Estirar cuello, hombros y espalda",
           summary = "Haz 4 estiramientos suaves para soltar tensión postural.",
           description = "Unos minutos de movilidad alivian la rigidez de estar sentado o tenso.",
@@ -247,7 +256,7 @@ object MissionsProvider {
           benefit = "Suele aliviar la pesadez física tras horas de estudio o trabajo."
         ),
         mission(
-          id = "ejer_3", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "ejer_3", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Subir escaleras o caminar tras comer",
           summary = "Muévete suave durante 5 minutos después de una comida.",
           description = "Aprovechar un momento cotidiano evita depender de grandes rutinas.",
@@ -259,7 +268,7 @@ object MissionsProvider {
           benefit = "Suma movimiento real sin exigir bloques largos de agenda."
         ),
         mission(
-          id = "ejer_4", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "ejer_4", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Poner una canción y moverte",
           summary = "Mueve el cuerpo con música que te guste durante 2 canciones.",
           description = "Moverse con música rompe la inercia y mejora el ánimo sin rigidez.",
@@ -271,7 +280,7 @@ object MissionsProvider {
           benefit = "Une energía física y disfrute en pocos minutos."
         ),
         mission(
-          id = "ejer_5", dim = dim, isPriority = isPriority, durationLabel = "15 min", durationMinutes = 15,
+          id = "ejer_5", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "15 min", durationMinutes = 15,
           title = "Caminata breve con luz de día",
           summary = "Aprovecha la luz natural para moverte 15 minutos.",
           description = "Combinar luz solar y paso ligero revitaliza mejor que otro café.",
@@ -283,7 +292,7 @@ object MissionsProvider {
           benefit = "Favorece vitalidad diurna y descanso nocturno."
         ),
         mission(
-          id = "ejer_6", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "ejer_6", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Activar caderas y piernas",
           summary = "Haz 10 sentadillas suaves o elevaciones de talones.",
           description = "Pequeñas activaciones musculares despiertan el cuerpo en días sedentarios.",
@@ -298,7 +307,7 @@ object MissionsProvider {
 
       DimensionKey.RELACIONES -> listOf(
         mission(
-          id = "rela_1", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "rela_1", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Enviar un mensaje sincero a alguien",
           summary = "Escribe a una persona querida solo para saber cómo está.",
           description = "Un gesto corto mantiene vivos los lazos importantes sin esperar ocasiones especiales.",
@@ -310,7 +319,7 @@ object MissionsProvider {
           benefit = "Fortalece la cercanía cotidiana con poco esfuerzo."
         ),
         mission(
-          id = "rela_2", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "rela_2", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Escuchar sin mirar el teléfono",
           summary = "Regala 10 minutos de atención real en una charla de hoy.",
           description = "Guardar el móvil cuando hablas con alguien transforma la calidad del encuentro.",
@@ -322,7 +331,7 @@ object MissionsProvider {
           benefit = "Mejora la calidez y la sensación de estar acompañado."
         ),
         mission(
-          id = "rela_3", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "rela_3", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Agradecer un gesto pequeño",
           summary = "Reconoce algo que alguien hizo por ti recientemente.",
           description = "Expresar gratitud concreta cuida los vínculos diarios en casa o el trabajo.",
@@ -334,7 +343,7 @@ object MissionsProvider {
           benefit = "Nutre relaciones más amables y recíprocas."
         ),
         mission(
-          id = "rela_4", dim = dim, isPriority = isPriority, durationLabel = "15 min", durationMinutes = 15,
+          id = "rela_4", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "15 min", durationMinutes = 15,
           title = "Llamada corta con alguien de confianza",
           summary = "Llama 10-15 min a un amigo o familiar cercano.",
           description = "Escuchar la voz de alguien querido suele dar más calma que muchos chats.",
@@ -346,7 +355,7 @@ object MissionsProvider {
           benefit = "Ayuda a sentir apoyo real y salir del aislamiento."
         ),
         mission(
-          id = "rela_5", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "rela_5", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Proponer un café o paseo sencillo",
           summary = "Fija un día concreto para ver a alguien esta semana.",
           description = "Pasar de 'a ver cuándo nos vemos' a proponer un día hace reales los encuentros.",
@@ -358,7 +367,7 @@ object MissionsProvider {
           benefit = "Transforma buenas intenciones en compañía real."
         ),
         mission(
-          id = "rela_6", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "rela_6", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Pedir una mano en algo pequeño",
           summary = "Comparte una carga o duda con alguien de confianza.",
           description = "Permitir que te acompañen o ayuden alivia la sensación de cargarlo todo solo.",
@@ -373,7 +382,7 @@ object MissionsProvider {
 
       DimensionKey.HOBBIES -> listOf(
         mission(
-          id = "hobb_1", dim = dim, isPriority = isPriority, durationLabel = "15 min", durationMinutes = 15,
+          id = "hobb_1", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "15 min", durationMinutes = 15,
           title = "15 minutos para algo que disfrutes",
           summary = "Lee, dibuja, cocina o toca música sin buscar productividad.",
           description = "Reservar un rato breve para hacer algo solo por gusto devuelve aire al día.",
@@ -385,7 +394,7 @@ object MissionsProvider {
           benefit = "Ayuda a desconectar de obligaciones y recuperar entusiasmo."
         ),
         mission(
-          id = "hobb_2", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "hobb_2", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Leer 5 páginas de algo por placer",
           summary = "Lee ficción, poesía o un tema curioso fuera del trabajo.",
           description = "Pocas páginas al día mantienen vivo un espacio personal sin requerir horas libres.",
@@ -397,7 +406,7 @@ object MissionsProvider {
           benefit = "Despierta curiosidad y calma mental."
         ),
         mission(
-          id = "hobb_3", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "hobb_3", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Dejar tus materiales a la vista",
           summary = "Prepara tu libro, guitarra o libreta para mañana.",
           description = "Reducir el esfuerzo de empezar hace mucho más fácil retomar tus pasiones.",
@@ -409,7 +418,7 @@ object MissionsProvider {
           benefit = "Elimina la fricción para disfrutar tu tiempo libre."
         ),
         mission(
-          id = "hobb_4", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "hobb_4", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Escuchar un álbum o pieza con atención",
           summary = "Pon música nueva o favorita sin hacer otra cosa.",
           description = "Escuchar de verdad, y no solo de fondo, convierte 10 minutos en disfrute pleno.",
@@ -421,7 +430,7 @@ object MissionsProvider {
           benefit = "Regala un respiro sensorial agradable."
         ),
         mission(
-          id = "hobb_5", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "hobb_5", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Boceto o escritura libre",
           summary = "Dibuja o escribe media página sin corregirlo.",
           description = "Expresarte sin objetivo de resultado libera creatividad contenida.",
@@ -433,7 +442,7 @@ object MissionsProvider {
           benefit = "Ayuda a despejar la cabeza de forma creativa."
         ),
         mission(
-          id = "hobb_6", dim = dim, isPriority = isPriority, durationLabel = "15 min", durationMinutes = 15,
+          id = "hobb_6", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "15 min", durationMinutes = 15,
           title = "Probar una receta o bebida especial",
           summary = "Prepara con calma algo rico para ti.",
           description = "Cocinar algo sencillo con atención plena es una forma accesible de crear.",
@@ -448,7 +457,7 @@ object MissionsProvider {
 
       DimensionKey.EXCELENCIA -> listOf(
         mission(
-          id = "exce_1", dim = dim, isPriority = isPriority, durationLabel = "15 min", durationMinutes = 15,
+          id = "exce_1", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "15 min", durationMinutes = 15,
           title = "Un bloque de 15 min en una sola tarea",
           summary = "Avanza en algo importante cerrando otras pestañas.",
           description = "Quince minutos sin interrupciones valen más que una hora fragmentada.",
@@ -460,7 +469,7 @@ object MissionsProvider {
           benefit = "Genera sensación de avance real sin agobio."
         ),
         mission(
-          id = "exce_2", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "exce_2", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Ordenar tu espacio de trabajo",
           summary = "Despeja tu escritorio o mochila en 10 minutos.",
           description = "Un entorno ordenado reduce ruido visual y facilita empezar mañana con serenidad.",
@@ -472,7 +481,7 @@ object MissionsProvider {
           benefit = "Aporta calma y foco inmediato."
         ),
         mission(
-          id = "exce_3", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "exce_3", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Cerrar una tarea pequeña pendiente",
           summary = "Termina algo breve que llevas días posponiendo.",
           description = "Resolver un pendiente ligero quita peso mental de inmediato.",
@@ -484,7 +493,7 @@ object MissionsProvider {
           benefit = "Libera atención que antes gastabas recordándolo."
         ),
         mission(
-          id = "exce_4", dim = dim, isPriority = isPriority, durationLabel = "10 min", durationMinutes = 10,
+          id = "exce_4", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "10 min", durationMinutes = 10,
           title = "Cuidar un detalle de tu entrega",
           summary = "Revisa con cariño el acabado de algo que estás haciendo.",
           description = "Dar un poco más de esmero por satisfacción propia alimenta el buen hacer sin perfeccionismo.",
@@ -496,7 +505,7 @@ object MissionsProvider {
           benefit = "Une orgullo sano por tu trabajo y límites claros."
         ),
         mission(
-          id = "exce_5", dim = dim, isPriority = isPriority, durationLabel = "5 min", durationMinutes = 5,
+          id = "exce_5", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "5 min", durationMinutes = 5,
           title = "Definir lo esencial de mañana",
           summary = "Elige la única tarea que hará valioso el día de mañana.",
           description = "Clarificar una prioridad evita dispersarte entre diez cosas urgentes.",
@@ -508,7 +517,7 @@ object MissionsProvider {
           benefit = "Da dirección serena a tu jornada."
         ),
         mission(
-          id = "exce_6", dim = dim, isPriority = isPriority, durationLabel = "15 min", durationMinutes = 15,
+          id = "exce_6", dim = dim, isPriority = isPriority, isWeakness = isWeakness, durationLabel = "15 min", durationMinutes = 15,
           title = "Aprender algo útil de tu oficio",
           summary = "Dedica 15 minutos a mejorar una herramienta o habilidad.",
           description = "Avanzar de a poco en lo que haces mantiene viva la motivación profesional.",
@@ -527,6 +536,7 @@ object MissionsProvider {
     id: String,
     dim: LifeDimension,
     isPriority: Boolean,
+    isWeakness: Boolean,
     durationLabel: String,
     durationMinutes: Int,
     title: String,
@@ -534,17 +544,36 @@ object MissionsProvider {
     description: String,
     steps: List<String>,
     benefit: String
-  ) = BalanceMission(
-    id = id,
-    dimensionIndex = dim.index,
-    dimensionTitle = dim.title,
-    title = title,
-    summary = summary,
-    description = description,
-    steps = steps,
-    benefit = benefit,
-    durationLabel = durationLabel,
-    durationMinutes = durationMinutes,
-    isPriorityFocus = isPriority
-  )
+  ): BalanceMission {
+    val baseExp = when {
+      durationMinutes <= 5 -> 15
+      durationMinutes <= 10 -> 20
+      else -> 25
+    }
+    val hasMultiplier = isWeakness || isPriority
+    val finalExp = if (hasMultiplier) (baseExp * 1.5).toInt() else baseExp
+    val difficultyLabel = when {
+      durationMinutes <= 5 -> "Fácil"
+      durationMinutes <= 10 -> "Media"
+      else -> "Enfoque"
+    }
+    return BalanceMission(
+      id = id,
+      dimensionIndex = dim.index,
+      dimensionTitle = dim.title,
+      title = title,
+      summary = summary,
+      description = description,
+      steps = steps,
+      benefit = benefit,
+      durationLabel = durationLabel,
+      durationMinutes = durationMinutes,
+      isPriorityFocus = isPriority,
+      baseExpReward = baseExp,
+      isWeaknessFocus = isWeakness,
+      hasMultiplier = hasMultiplier,
+      expReward = finalExp,
+      difficulty = difficultyLabel
+    )
+  }
 }
